@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { checks } from './checks.ts';
 
 type Task = { id: string; title: string; difficulty: string; category: string; timeoutMin: number; prompt: string; setup?: { from: string; to: string }[] };
@@ -51,7 +51,7 @@ function prepare(task: Task, root: string): string {
   return ws;
 }
 
-async function runAgent(task: Task, ws: string): Promise<{ seconds: number; exit: number; transcript: string }> {
+function runAgent(task: Task, ws: string): { seconds: number; exit: number; transcript: string } {
   const t0 = Date.now();
   if (agent === 'none') return { seconds: 0, exit: 0, transcript: '' };
   if (agent === 'reference') {
@@ -59,37 +59,10 @@ async function runAgent(task: Task, ws: string): Promise<{ seconds: number; exit
     return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout}${r.stderr}` };
   }
   const prompt = `${task.prompt}\n\nWork only inside the current folder. Verify your work by actually running it before you finish.`;
-  const startedUtc = new Date().toISOString();
-  const child = spawn('jcode', ['-p', provider, '-m', model, 'run', '--no-update', prompt], { cwd: ws, windowsHide: true });
-  let out = '', err = '', note = '';
-  child.stdout.setEncoding('utf8').on('data', (d) => { out += d; });
-  child.stderr.setEncoding('utf8').on('data', (d) => { err += d; });
-  child.stdin.on('error', () => {}).end('\n'); // answers jcode's first-launch "Approve sources" prompt
-  const exit = await new Promise<number>((resolve) => {
-    const timer = setTimeout(() => {
-      note += `\n[runner] timeout after ${task.timeoutMin} min, killing process tree`;
-      killTree(child.pid);
-    }, task.timeoutMin * 60_000);
-    child.on('error', (e) => { note += `\n[runner] ${e.message}`; clearTimeout(timer); resolve(-1); });
-    child.on('close', (code) => { clearTimeout(timer); resolve(code ?? -1); });
+  const r = spawnSync('jcode', ['-p', provider, '-m', model, 'run', '--no-update', prompt], {
+    cwd: ws, input: '\n', encoding: 'utf8', timeout: task.timeoutMin * 60_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true,
   });
-  const swept = sweepAgentProcesses(ws, child.pid, startedUtc);
-  if (swept) note += `\n[runner] ${swept}`;
-  return { seconds: Math.round((Date.now() - t0) / 1000), exit, transcript: `${out}\n${err}${note}` };
-}
-
-// jcode spawns helper processes (daemon/agents) that outlive `jcode run`. Kill the direct child's tree first,
-// then anything whose CommandLine mentions the sandbox, is descended from the child, or is a jcode.exe started
-// during this task. Otherwise stragglers hold the sandbox open and hit the next task.
-function killTree(pid?: number) {
-  if (pid) spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true });
-}
-function sweepAgentProcesses(ws: string, pid: number | undefined, sinceUtc: string): string {
-  killTree(pid);
-  const r = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(EVALS, 'tools', 'kill-sandbox-procs.ps1'),
-    '-Path', ws, '-RootPid', String(pid ?? 0), '-Name', 'jcode.exe', '-SinceUtc', sinceUtc], { encoding: 'utf8', windowsHide: true });
-  const lines = (r.stdout ?? '').trim().split(/\r?\n/).filter(Boolean);
-  return lines.some((l) => l.startsWith('killed') || l.startsWith('FAILED')) ? `swept stray processes: ${lines.join('; ')}` : '';
+  return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout ?? ''}\n${r.stderr ?? ''}${r.error ? `\n[runner] ${r.error.message}` : ''}` };
 }
 
 async function grade(task: Task, ws: string) {
@@ -125,7 +98,7 @@ const results: any[] = [];
 for (const task of selected) {
   process.stdout.write(`${task.id} ${task.title.padEnd(42)} `);
   const ws = prepare(task, root);
-  const run = await runAgent(task, ws);
+  const run = runAgent(task, ws);
   const g = await grade(task, ws);
   const diff = spawnSync('git diff --stat HEAD', { cwd: ws, shell: true, encoding: 'utf8' }).stdout.trim().split('\n').pop() ?? '';
   fs.writeFileSync(path.join(outDir, `${task.id}.transcript.txt`), run.transcript);
