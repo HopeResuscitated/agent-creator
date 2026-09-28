@@ -16,7 +16,9 @@ const S: Record<string, () => void> = {
   T03: () => w('answer.txt', 'resolveInRoot\n'),
   T04: () => {
     const o = spawnSync('node --test packages/agent/test/tools.test.ts', { cwd: ws, shell: true, encoding: 'utf8' });
-    w('answer.txt', `${(o.stdout + o.stderr).match(/ℹ pass (\d+)/)![1]}\n`);
+    const passLine = (o.stdout + o.stderr).match(/ℹ pass (\d+)/);
+    if (!passLine) throw new Error(`T04: no "ℹ pass N" line in node --test output (exit ${o.status})`);
+    w('answer.txt', `${passLine[1]}\n`);
   },
   T05: () => sub('packages/shared/utils/chunk.ts', 'i < items.length - size', 'i < items.length'),
   T06: () => {
@@ -243,7 +245,10 @@ Live target: https://donate-hope.vercel.app
 -
 `),
   T17: () => {
-    const rows = JSON.parse(r('data/posts-export.json')).map((p: any) => ({ id: p.id, date: p.created.slice(0, 10), platform: p.platform.toLowerCase(), status: p.status, likes: p.metrics?.likes ?? 0 }));
+    let posts: unknown;
+    try { posts = JSON.parse(r('data/posts-export.json')); } catch (e) { throw new Error(`T17: data/posts-export.json is not valid JSON: ${(e as Error).message}`); }
+    if (!Array.isArray(posts)) throw new Error('T17: data/posts-export.json must be a JSON array of posts');
+    const rows = posts.map((p: any) => ({ id: p.id, date: p.created.slice(0, 10), platform: p.platform.toLowerCase(), status: p.status, likes: p.metrics?.likes ?? 0 }));
     rows.sort((a: any, b: any) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
     w('docs/posts.csv', ['id,date,platform,status,likes', ...rows.map((x: any) => `${x.id},${x.date},${x.platform},${x.status},${x.likes}`)].join('\n') + '\n');
   },

@@ -20,6 +20,7 @@ const EVALS = import.meta.dirname;
 const REPO = path.dirname(EVALS);
 const tasks: Task[] = JSON.parse(fs.readFileSync(path.join(EVALS, 'tasks.json'), 'utf8'));
 const SKIP = new Set(['node_modules', '.git', 'evals', 'dist', '.jswarm', 'docs']);
+const COPY_EXCLUDE = new Set(['dist', 'node_modules']); // skipped at any depth when copying the repo
 
 const argv = process.argv.slice(2);
 const flag = (n: string, d?: string) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
@@ -31,7 +32,7 @@ function copyRepo(dest: string) {
   fs.mkdirSync(dest, { recursive: true });
   for (const e of fs.readdirSync(REPO)) {
     if (SKIP.has(e)) continue;
-    fs.cpSync(path.join(REPO, e), path.join(dest, e), { recursive: true, filter: (s) => !s.includes(`${path.sep}dist`) && !s.includes(`${path.sep}node_modules`) });
+    fs.cpSync(path.join(REPO, e), path.join(dest, e), { recursive: true, filter: (s) => !path.relative(REPO, s).split(path.sep).some((seg) => COPY_EXCLUDE.has(seg)) });
   }
   fs.mkdirSync(path.join(dest, 'docs'), { recursive: true });
   fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(dest, 'node_modules'), 'junction');
@@ -84,8 +85,9 @@ if (flag('grade')) {
 }
 
 // ---- batch mode ----
-const only = flag('only')?.split(',');
-const selected = tasks.filter((t) => !only || only.includes(t.id));
+const onlyFlag = flag('only');
+const only = onlyFlag ? new Set(onlyFlag.split(',')) : undefined;
+const selected = tasks.filter((t) => !only || only.has(t.id));
 const runId = `${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}_${agent === 'none' ? 'baseline' : agent === 'reference' ? 'reference' : `${provider}-${model}`}`.replace(/[^\w.-]/g, '_');
 const root = path.join(os.tmpdir(), 'agent-evals', runId);
 const outDir = path.join(EVALS, 'results', runId);
