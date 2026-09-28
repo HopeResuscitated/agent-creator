@@ -1,0 +1,8 @@
+[
+  { "id": "p3", "created": "2026-09-20T14:05:00Z", "platform": "Instagram", "status": "published", "metrics": { "likes": 42 } },
+  { "id": "p1", "created": "2026-09-18T09:00:00-05:00", "platform": "FACEBOOK", "status": "published", "metrics": { "likes": 17 } },
+  { "id": "p5", "created": "2026-09-25T23:30:00Z", "platform": "facebook", "status": "scheduled" },
+  { "id": "p2", "created": "2026-09-19T12:00:00Z", "platform": "Instagram", "status": "draft", "metrics": {} },
+  { "id": "p4", "created": "2026-09-22T08:15:00Z", "platform": "instagram", "status": "published", "metrics": { "likes": 0 } },
+  { "id": "p6", "created": "2026-09-21T18:45:00Z", "platform": "Facebook", "status": "failed", "metrics": { "likes": 3 } }
+]

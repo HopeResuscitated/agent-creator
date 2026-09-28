@@ -1,0 +1,29 @@
+{
+  "name": "@agent-creator/protocol",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./schemas/task": {
+      "import": "./dist/schemas/task.js",
+      "types": "./dist/schemas/task.d.ts"
+    },
+    "./schemas/message": {
+      "import": "./dist/schemas/message.js",
+      "types": "./dist/schemas/message.d.ts"
+    },
+    "./schemas/tool": {
+      "import": "./dist/schemas/tool.js",
+      "types": "./dist/schemas/tool.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  }
+}

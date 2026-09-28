@@ -1,0 +1,30 @@
+{
+  "name": "@agent-creator/agent",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./orchestrator": {
+      "import": "./dist/orchestrator.js",
+      "types": "./dist/orchestrator.d.ts"
+    },
+    "./tools": {
+      "import": "./dist/tools/index.js",
+      "types": "./dist/tools/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "node dist/index.js"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@agent-creator/protocol": "^0.1.0",
+    "@agent-creator/shared": "^0.1.0"
+  }
+}

@@ -1,0 +1,81 @@
+[
+  {
+    "id": "T01", "title": "Create a file", "difficulty": "easy", "category": "basic tools", "timeoutMin": 15,
+    "prompt": "Create the file notes/hello.txt containing exactly the text: hello agent"
+  },
+  {
+    "id": "T02", "title": "Surgical one-line edit", "difficulty": "easy", "category": "editing", "timeoutMin": 15,
+    "setup": [{ "from": "fixtures/retry-config.ts", "to": "packages/shared/utils/retry-config.ts" }],
+    "prompt": "In packages/shared/utils/retry-config.ts change MAX_RETRIES from 2 to 5. Change nothing else in the file."
+  },
+  {
+    "id": "T03", "title": "Find code by meaning", "difficulty": "easy", "category": "code search", "timeoutMin": 15,
+    "prompt": "Which exported function in packages/agent/tools refuses file paths that escape the repo root? Write only the function name (nothing else) to answer.txt in the repo root."
+  },
+  {
+    "id": "T04", "title": "Run a command and report truthfully", "difficulty": "easy", "category": "verification", "timeoutMin": 15,
+    "prompt": "Run the test suite with: node --test packages/agent/test/tools.test.ts  Then write only the number of passing tests (just the number) to answer.txt in the repo root."
+  },
+  {
+    "id": "T05", "title": "Fix a failing test (off-by-one)", "difficulty": "easy", "category": "debugging", "timeoutMin": 20, "regression": true,
+    "setup": [
+      { "from": "fixtures/chunk.ts", "to": "packages/shared/utils/chunk.ts" },
+      { "from": "fixtures/chunk.test.ts", "to": "packages/shared/test/chunk.test.ts" }
+    ],
+    "prompt": "The test packages/shared/test/chunk.test.ts fails (run: node --test packages/shared/test/chunk.test.ts). Find and fix the bug in packages/shared/utils/chunk.ts. Do not modify the test file."
+  },
+  {
+    "id": "T06", "title": "Implement slugify from a spec", "difficulty": "medium", "category": "implementation", "timeoutMin": 30,
+    "prompt": "Create packages/shared/utils/slugify.ts exporting a function slugify(input: string): string with these rules: 1) lowercase; 2) remove accents (e.g. 'é' becomes 'e'); 3) replace every run of characters that are not a-z or 0-9 with a single '-'; 4) remove leading and trailing '-'; 5) limit the result to 60 characters, and if truncation leaves a trailing '-', remove it. An input with no letters or digits returns ''. Add a test file packages/shared/test/slugify.test.ts using node:test and make sure it passes with: node --test packages/shared/test/slugify.test.ts"
+  },
+  {
+    "id": "T07", "title": "Implement a parser with error handling", "difficulty": "medium", "category": "implementation", "timeoutMin": 30,
+    "prompt": "Create packages/shared/utils/duration.ts exporting parseDuration(s: string): number that returns a number of seconds. It accepts one or more number+unit parts with units d (days), h (hours), m (minutes), s (seconds), e.g. '45s', '2m', '1h30m', '2d', '1h 5m 10s'. Spaces between parts are allowed. Units are case-insensitive ('1H30M' works). It must throw an Error for invalid input, including: empty string, 'abc', '10x', 'h', and a number with no unit like '5'. Add tests in packages/shared/test/duration.test.ts using node:test and make sure they pass."
+  },
+  {
+    "id": "T08", "title": "Add a tool following existing patterns", "difficulty": "medium", "category": "extend codebase", "timeoutMin": 30, "regression": true,
+    "prompt": "Add a new tool named file_exists to the tool registry in packages/agent/tools, following the exact pattern of the existing tools (see packages/agent/tools/index.ts and fs.ts). Parameter: path (string, required). On success it returns a ToolResult with success: true and data: { exists: boolean, type: 'file' | 'dir' | null } (type is null when the path does not exist). It must use the same sandbox as the other tools, so a path that escapes the repo root returns success: false. Existing tests must keep passing: node --test packages/agent/test/tools.test.ts and npx tsc --noEmit -p packages/agent"
+  },
+  {
+    "id": "T09", "title": "Timing instrumentation (real spec)", "difficulty": "medium", "category": "real roadmap", "timeoutMin": 30, "regression": true,
+    "prompt": "Implement the logging part of data/spec-timing-instrumentation.md. In packages/agent/orchestrator.ts, make AgentOrchestrator.executeTool(toolName, args, context) measure the elapsed time of every tool call and append one line per call to <context.workspace>/docs/tool-timing.log (create the docs folder if missing). Line format, fields separated by ' | ': ISO timestamp | tool name | taskId (use '-' if none) | durationMs (integer) | status, where status is 'ok' when the ToolResult succeeded and 'error' otherwise. It must still return the ToolResult unchanged. Keep node --test packages/agent/test/tools.test.ts and npx tsc --noEmit -p packages/agent passing."
+  },
+  {
+    "id": "T10", "title": "Benchmark script (real spec)", "difficulty": "medium", "category": "real roadmap", "timeoutMin": 30, "regression": true,
+    "prompt": "Implement the bench script from data/spec-timing-instrumentation.md: create packages/agent/scripts/bench-tools.ts that runs each of the 6 real tools (read_file, write_file, edit_file, list_dir, run_command, grep) 5 times against a fresh temp directory, prints the average duration per tool, writes the averages as a markdown table to docs/BENCH.md (relative to the repo root / current working directory), and deletes the temp directory when done. It must run to completion with: node packages/agent/scripts/bench-tools.ts"
+  },
+  {
+    "id": "T11", "title": "Write meaningful tests", "difficulty": "medium", "category": "testing", "timeoutMin": 30, "regression": true,
+    "prompt": "Write tests for the grep tool (packages/agent/tools/search.ts, called through executeTool('grep', ...) from packages/agent/tools/index.ts) in a new file packages/agent/test/grep.test.ts using node:test, following the style of packages/agent/test/tools.test.ts. Cover at least: a literal match that is found, a regex match that is found, a search with no matches, and a path that escapes the root being rejected (success: false). Use a temp directory. All tests must pass with: node --test packages/agent/test/grep.test.ts"
+  },
+  {
+    "id": "T12", "title": "Verify gate (real spec)", "difficulty": "hard", "category": "real roadmap", "timeoutMin": 45, "regression": true,
+    "prompt": "Implement data/spec-verify-gate.md. Add an npm script 'verify' to the root package.json so that running 'npm run verify' from the repo root: 1) type-checks the agent package (npx tsc --noEmit -p packages/agent), 2) runs lint, 3) runs every test file matching packages/agent/test/*.test.ts with node --test, and 4) writes the combined output to docs/verify.log. It must exit with code 0 when everything passes and a non-zero code if any step fails (a failing test must make verify fail). Note: there is currently no ESLint config; either add a minimal working flat config (eslint.config.js) or make the lint step something that genuinely runs and passes. Prove it works by running npm run verify."
+  },
+  {
+    "id": "T13", "title": "Orchestrator task lifecycle (roadmap step 2)", "difficulty": "hard", "category": "real roadmap", "timeoutMin": 45, "regression": true,
+    "prompt": "Implement roadmap Step 2 (data/spec-roadmap.md) in packages/agent/orchestrator.ts. Add and export a type Planner = (task: Task) => Promise<Array<{ title: string; tool: string; args: Record<string, unknown> }>> and a method on AgentOrchestrator: async runTask(objective: string, workspace: string, planner: Planner): Promise<Task>. Behaviour: create the task (createTask), set status 'running', call the planner, add ALL planned steps to task.steps up front with status 'pending' (each with a unique id and the title), then execute them in order via executeTool with context { workspace, taskId: task.id }. After each step set status 'completed' and result = the ToolResult's data, or on failure status 'failed' and error = the ToolResult's error, then stop; remaining steps stay 'pending'. Final task.status is 'completed' if every step succeeded, otherwise 'failed'. If the planner throws, the task status is 'failed' and runTask must not throw. Update task.updatedAt. Use the existing Task and TaskStep types from packages/protocol/types.ts only (no new parallel types). Keep node --test packages/agent/test/tools.test.ts and npx tsc --noEmit -p packages/agent passing."
+  },
+  {
+    "id": "T14", "title": "Fix the build output layout (known issue)", "difficulty": "hard", "category": "build config", "timeoutMin": 45, "regression": true,
+    "prompt": "Known issue from data/spec-roadmap.md Step 3: building the agent package with 'npx tsc -p packages/agent' emits files under packages/agent/dist/agent/... because of the rootDir setting, but packages/agent/package.json expects dist/index.js. Fix the build configuration so that after deleting packages/agent/dist and running 'npx tsc -p packages/agent', these files exist: packages/agent/dist/index.js, packages/agent/dist/orchestrator.js and packages/agent/dist/tools/index.js, the build has zero errors, and 'node -e \"import(\\'./packages/agent/dist/index.js\\')\"' runs without error from the repo root. Do not break node --test packages/agent/test/tools.test.ts."
+  },
+  {
+    "id": "T15", "title": "Security: block junction/symlink escapes", "difficulty": "hard", "category": "security", "timeoutMin": 45, "regression": true,
+    "prompt": "The tool sandbox in packages/agent/tools/sandbox.ts (resolveInRoot) only checks the path text, so a symlink or Windows junction inside the repo root that points outside it lets read_file, write_file, list_dir and run_command (cwd) escape the root. Harden the sandbox so any path whose real location (following symlinks/junctions) is outside the root is refused with success: false. Paths that do not exist yet (e.g. write_file creating new/deep/file.txt) must still work, and so must every existing test: node --test packages/agent/test/tools.test.ts. Add a test for the escape case to packages/agent/test/tools.test.ts (hint: fs.symlink(target, link, 'junction') works on Windows without admin)."
+  },
+  {
+    "id": "T16", "title": "Plan a project from a template", "difficulty": "medium", "category": "planning/docs", "timeoutMin": 20,
+    "setup": [{ "from": "fixtures/PLAN-template.md", "to": "docs/templates/PLAN.md" }],
+    "prompt": "Using the template docs/templates/PLAN.md, write docs/PLAN-donation-page.md for this project: a one-page donation landing page for Hope Resuscitated (a 501(c)(3) nonprofit), built as a static Vite + TypeScript site, hosted on GitHub and deployed on Vercel. Keep the template's table format. Include at least 4 stages. Every stage row must have a concrete done-check: an exact command or a specific observable test (no placeholders)."
+  },
+  {
+    "id": "T17", "title": "Transform data exactly", "difficulty": "medium", "category": "data", "timeoutMin": 20,
+    "setup": [{ "from": "fixtures/posts-export.json", "to": "data/posts-export.json" }],
+    "prompt": "Convert data/posts-export.json into docs/posts.csv. Header line exactly: id,date,platform,status,likes  Rules: date = the first 10 characters of the 'created' timestamp (YYYY-MM-DD, as written); platform in lowercase; likes = metrics.likes, or 0 if metrics or likes is missing; sort rows by date ascending, then by id. No quotes, no extra columns, no blank lines between rows."
+  },
+  {
+    "id": "T18", "title": "Summarize project status accurately", "difficulty": "easy", "category": "reading/docs", "timeoutMin": 15,
+    "prompt": "Read data/spec-roadmap.md and write docs/STATUS.md containing exactly one line per roadmap step (5 lines, nothing else), each in the form: Step N — <step name> — DONE  or  Step N — <step name> — TODO  based on what the roadmap says is done."
+  }
+]
