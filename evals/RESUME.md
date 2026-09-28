@@ -78,3 +78,11 @@ Per ~/.jcode/logs/jcode-2026-09-27.log:
   `~/.cargo/bin/cargo.exe +stable-x86_64-pc-windows-gnu build --release --target x86_64-pc-windows-gnu --bin jcode`
 - Also fixed a Windows-only test compile error in tool/communicate/transport.rs (expect_err needs Debug).
 - Previous binary backed up as ~/.local/bin/jcode.exe.bak-pre-xmlfix.
+
+## Stopped 2026-09-28 ~02:55 (restart tomorrow)
+- evals/run.ts reverted to the 8710f99 runner and committed (b2fdbfc). The sweeper runner killed live agents; don't reuse it as-is.
+- T01 on the reverted runner: PASS (320s, results/2026-09-28-07-26_...).
+- Full run 07-32 was stopped on purpose during T04 (T01-T03 transcripts only, no summary). Not a real score, ignore it.
+- Before restarting: make sure no other jcode run is active (no probes during an eval), then in PowerShell:
+    cd "$HOME\Desktop\agent creator"; node evals/run.ts
+- After the eval: move on to roadmap Step 2 (Orchestrator), whatever the score.
