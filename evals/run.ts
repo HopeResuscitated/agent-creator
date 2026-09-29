@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import { checks } from './checks.ts';
 
 type Task = { id: string; title: string; difficulty: string; category: string; timeoutMin: number; prompt: string; setup?: { from: string; to: string }[] };
@@ -139,11 +140,75 @@ function copyNodeModules(dest: string) {
   }
 }
 
+/**
+ * Deterministic fingerprint of <root>/node_modules: every directory, every file (size +
+ * sha1 of content) and every link (target relative to root, never followed). Mtimes are
+ * ignored. The golden fingerprint is taken once, from the repo's node_modules, and every
+ * sandbox copy must equal it, so any change the agent makes to its dependencies shows up.
+ */
+type Fingerprint = Map<string, string>;
+function fingerprintNodeModules(root: string): Fingerprint {
+  const nm = path.join(root, 'node_modules'); const fp: Fingerprint = new Map();
+  let st: fs.Stats;
+  try { st = fs.lstatSync(nm); } catch { fp.set('.', 'MISSING'); return fp; }
+  if (st.isSymbolicLink()) { fp.set('.', `LINK ${fs.readlinkSync(nm)}`); return fp; }
+  if (!st.isDirectory()) { fp.set('.', 'NOT-A-DIRECTORY'); return fp; }
+  (function walk(d: string) {
+    for (const e of fs.readdirSync(d).sort()) {
+      const f = path.join(d, e); const rel = path.relative(nm, f).replace(/\\/g, '/'); const s = fs.lstatSync(f);
+      if (s.isSymbolicLink()) {
+        const t = path.relative(root, path.resolve(path.dirname(f), fs.readlinkSync(f)));
+        fp.set(rel, t.startsWith('..') || path.isAbsolute(t) ? `L OUTSIDE ${path.resolve(path.dirname(f), fs.readlinkSync(f))}` : `L ${t.replace(/\\/g, '/')}`);
+      } else if (s.isDirectory()) { fp.set(rel, 'D'); walk(f); }
+      else fp.set(rel, `F ${s.size} ${crypto.createHash('sha1').update(fs.readFileSync(f)).digest('hex')}`);
+    }
+  })(nm);
+  return fp;
+}
+let goldenFp: Fingerprint | undefined;
+const golden = () => (goldenFp ??= fingerprintNodeModules(REPO));
+/** Differences between a sandbox fingerprint and the golden one, as `+path`, `-path`, `~path`. */
+function fpDiff(have: Fingerprint): string[] {
+  const want = golden(); const d: string[] = [];
+  for (const [k, v] of have) if (!want.has(k)) d.push(`+${k}`); else if (want.get(k) !== v) d.push(`~${k}`);
+  for (const k of want.keys()) if (!have.has(k)) d.push(`-${k}`);
+  return d;
+}
+
+type EnvStatus = { env: 'CLEAN' | 'ENV_CONTAMINATED' | 'ENV_RESTORE_FAILED'; envDetail: string };
+/**
+ * Post-agent dependency integrity, run after the agent and before grading. If the
+ * sandbox's node_modules differs from the golden fingerprint in any way, the agent's tree
+ * is moved OUT of the sandbox as evidence (<ws>.contaminated-node_modules-<time>, with a
+ * .txt listing every difference), a fresh golden copy is put in its place, and the copy is
+ * re-verified. Grading happens only on a verified golden tree.
+ */
+function checkAndRestoreEnv(ws: string): EnvStatus {
+  const d = fpDiff(fingerprintNodeModules(ws));
+  if (!d.length) return { env: 'CLEAN', envDetail: '' };
+  const summary = `${d.length} node_modules difference(s): ${d.slice(0, 8).join(', ')}${d.length > 8 ? ', ...' : ''}`;
+  try {
+    const evidence = `${ws}.contaminated-node_modules-${Date.now()}`;
+    const nm = path.join(ws, 'node_modules');
+    let exists = true; try { fs.lstatSync(nm); } catch { exists = false; }
+    if (exists) fs.renameSync(nm, evidence);
+    fs.writeFileSync(`${evidence}.txt`, `sandbox: ${ws}\nnode_modules ${exists ? `moved to: ${evidence}` : 'was missing'}\n${d.join('\n')}\n`);
+    copyNodeModules(ws);
+    const after = fpDiff(fingerprintNodeModules(ws));
+    if (after.length) throw new Error(`restored tree still differs from golden: ${after.slice(0, 5).join(', ')}`);
+    return { env: 'ENV_CONTAMINATED', envDetail: `${summary}; restored from golden; evidence: ${evidence}` };
+  } catch (e) {
+    return { env: 'ENV_RESTORE_FAILED', envDetail: `${summary}; restore failed: ${(e as Error).message}` };
+  }
+}
+
 function copyRepo(dest: string) {
   fs.mkdirSync(dest, { recursive: true });
   extractTree(baselineSha, dest);
   fs.mkdirSync(path.join(dest, 'docs'), { recursive: true });
   copyNodeModules(dest);
+  const d = fpDiff(fingerprintNodeModules(dest));
+  if (d.length) throw new Error(`sandbox node_modules does not match golden (repo node_modules changed during the run?): ${d.slice(0, 5).join(', ')}`);
 }
 
 function prepare(task: Task, root: string): string {
@@ -208,21 +273,28 @@ for (const task of selected) {
   process.stdout.write(`${task.id} ${task.title.padEnd(42)} `);
   const ws = prepare(task, root);
   const run = runAgent(task, ws);
-  const g = await grade(task, ws);
+  // Dependency integrity before grading: never grade against the agent's node_modules.
+  const envStatus = checkAndRestoreEnv(ws);
+  const g = envStatus.env === 'ENV_RESTORE_FAILED' ? { pass: false, detail: `not graded: ${envStatus.envDetail}` } : await grade(task, ws);
+  // A contaminated environment is never counted as a PASS; the grader's verdict (graded on
+  // the restored golden tree) is kept alongside as graderPass.
+  const pass = g.pass && envStatus.env === 'CLEAN';
   const diff = spawnSync('git diff --stat HEAD', { cwd: ws, shell: true, encoding: 'utf8' }).stdout.trim().split('\n').pop() ?? '';
   fs.writeFileSync(path.join(outDir, `${task.id}.transcript.txt`), run.transcript);
-  results.push({ id: task.id, title: task.title, difficulty: task.difficulty, pass: g.pass, detail: g.detail, seconds: run.seconds, timedOut: run.seconds >= task.timeoutMin * 60 - 5, diff });
-  console.log(`${g.pass ? 'PASS' : 'FAIL'} ${String(run.seconds).padStart(5)}s  ${g.pass ? '' : g.detail.slice(0, 110)}`);
+  results.push({ id: task.id, title: task.title, difficulty: task.difficulty, pass, detail: g.detail, seconds: run.seconds, timedOut: run.seconds >= task.timeoutMin * 60 - 5, diff, env: envStatus.env, envDetail: envStatus.envDetail, graderPass: g.pass });
+  console.log(`${envStatus.env === 'CLEAN' ? (pass ? 'PASS' : 'FAIL') : `${envStatus.env} (grader: ${g.pass ? 'PASS' : 'FAIL'})`} ${String(run.seconds).padStart(5)}s  ${pass ? '' : g.detail.slice(0, 110)}${envStatus.env === 'CLEAN' ? '' : `\n    ${envStatus.envDetail.slice(0, 300)}`}`);
 }
 
 const passed = results.filter((r) => r.pass).length;
 const byDiff = ['easy', 'medium', 'hard'].map((d) => { const x = results.filter((r) => r.difficulty === d); return `${d} ${x.filter((r) => r.pass).length}/${x.length}`; }).join(', ');
 const minutes = Math.round(results.reduce((a, r) => a + r.seconds, 0) / 60);
+const contaminated = results.filter((r) => r.env !== 'CLEAN');
 const summary = [
   `# Eval run ${runId}`, '', `Baseline: ${baseline} (${baselineSha})`, '', `Environment: ${envLine}`, '',
   `Score: **${passed}/${results.length}** (${Math.round((100 * passed) / results.length)}%)  |  ${byDiff}  |  ${minutes} min total`, '',
+  ...(contaminated.length ? [`Dependency environment: ${contaminated.length} task(s) not CLEAN (${contaminated.map((r) => `${r.id} ${r.env}`).join(', ')}); these never count as PASS. Details in results.json (env, envDetail, graderPass).`, ''] : []),
   '| Task | Title | Level | Result | Time | Changes | Why it failed |', '|---|---|---|---|---|---|---|',
-  ...results.map((r) => `| ${r.id} | ${r.title} | ${r.difficulty} | ${r.pass ? 'PASS' : 'FAIL'}${r.timedOut ? ' (timeout)' : ''} | ${r.seconds}s | ${r.diff.replace(/\|/g, '/')} | ${r.pass ? '' : r.detail.replace(/\|/g, '/').replace(/\n/g, ' ').slice(0, 160)} |`),
+  ...results.map((r) => `| ${r.id} | ${r.title} | ${r.difficulty} | ${r.env === 'CLEAN' ? (r.pass ? 'PASS' : 'FAIL') : `${r.env} (grader: ${r.graderPass ? 'PASS' : 'FAIL'})`}${r.timedOut ? ' (timeout)' : ''} | ${r.seconds}s | ${r.diff.replace(/\|/g, '/')} | ${r.pass ? '' : r.detail.replace(/\|/g, '/').replace(/\n/g, ' ').slice(0, 160)} |`),
 ].join('\n');
 fs.writeFileSync(path.join(outDir, 'summary.md'), summary + '\n');
 fs.writeFileSync(path.join(outDir, 'results.json'), JSON.stringify(results, null, 2));
