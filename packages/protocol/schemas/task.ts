@@ -1,3 +1,5 @@
+﻿import type { ISODateString } from '../types.js';
+
 // @agent-creator/protocol
 // Shared type definitions for the autonomous agent platform
 
@@ -11,7 +13,7 @@ export interface Task {
   steps: TaskStep[];
 }
 
-export type TaskStatus = 
+export type TaskStatus =
   | 'pending'
   | 'running'
   | 'blocked'
@@ -19,7 +21,7 @@ export type TaskStatus =
   | 'completed'
   | 'cancelled';
 
-export type TaskPhase = 
+export type TaskPhase =
   | 'understanding'
   | 'inspection'
   | 'planning'
@@ -41,7 +43,7 @@ export interface TaskStep {
   error?: string;
 }
 
-export type StepStatus = 
+export type StepStatus =
   | 'pending'
   | 'active'
   | 'completed'
@@ -56,7 +58,7 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
 }
 
-export type MessageRole = 
+export type MessageRole =
   | 'user'
   | 'assistant'
   | 'system';
@@ -85,7 +87,7 @@ export interface AgentEvent {
   payload: Record<string, unknown>;
 }
 
-export type EventTypes = 
+export type EventTypes =
   | 'task.created'
   | 'task.started'
   | 'phase.changed'
@@ -111,7 +113,7 @@ export interface Agent {
   workspace: string;
 }
 
-export type AgentRole = 
+export type AgentRole =
   | 'director'
   | 'scout'
   | 'builder'
@@ -120,7 +122,7 @@ export type AgentRole =
   | 'auditor'
   | 'caretaker';
 
-export type AgentStatus = 
+export type AgentStatus =
   | 'idle'
   | 'active'
   | 'busy'
@@ -134,7 +136,7 @@ export interface FileChange {
   preview?: string;
 }
 
-export type FileAction = 
+export type FileAction =
   | 'created'
   | 'modified'
   | 'deleted'
@@ -152,7 +154,99 @@ export interface VerificationCheck {
   message?: string;
 }
 
-export type CheckStatus = 
+export type CheckStatus =
   | 'passed'
   | 'failed'
   | 'skipped';
+
+export interface SwarmNode {
+  id: string;
+  role: AgentRole;
+  status: NodeStatus;
+  lastHeartbeat?: ISODateString;
+  capabilities: string[];
+}
+
+export type NodeStatus =
+  | 'connected'
+  | 'disconnected'
+  | 'reconnecting'
+  | 'error';
+
+export interface Channel {
+  name: string;
+  topic: ChannelTopic;
+  subscribers: string[];
+  publishers: string[];
+}
+
+export type ChannelTopic =
+  | 'k3.reports'
+  | 'k3.status'
+  | 'k3.flags'
+  | 'k3.validation'
+  | 'k3.deals'
+  | 'k3.health'
+  | 'k3.directives'
+  | 'k3.targets'
+  | 'k3.specs'
+  | 'k3.intelligence'
+  | 'k3.leads'
+  | 'k3.artifacts'
+  | 'k3.code';
+
+export interface BroadcastMessage {
+  channelId: ChannelTopic;
+  payload: Record<string, unknown>;
+}
+
+export interface ExecutionContext {
+  workspace: string;
+  taskId?: string;
+  sessionId?: string;
+  timestamp: ISODateString;
+}
+
+export interface ExecutionOptions {
+  timeoutMs?: number;
+  retryCount?: number;
+  retryDelayMs?: number;
+  context?: ExecutionContext;
+}
+
+export interface ToolDefinition<T = any> {
+  name: string;
+  description: string;
+  parameters: ToolParameter[];
+  implementation: (
+    args: Record<string, unknown>,
+    options?: ExecutionOptions
+  ) => Promise<ToolResponse<T>>;
+}
+
+export interface ToolParameter {
+  name: string;
+  type: 'string' | 'number' | 'boolean' | 'object';
+  required?: boolean;
+  description?: string;
+}
+
+export interface StatusReport {
+  agentId: string;
+  status: AgentStatus;
+  currentTask?: Task;
+  recentEvents: AgentEvent[];
+  timestamp: ISODateString;
+}
+
+export type ToolResponse<T = any> =
+  T extends object
+    ? {
+        callId: string;
+        tool: string;
+        success: boolean;
+        data?: T;
+        error?: string;
+      }
+    : ToolResult;
+

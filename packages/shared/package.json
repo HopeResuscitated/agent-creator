@@ -1,29 +1,31 @@
-{
-  "name": "@agent-creator/shared",
-  "version": "0.1.0",
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    },
-    "./utils/fs": {
-      "import": "./dist/utils/fs.js",
-      "types": "./dist/utils/fs.d.ts"
-    },
-    "./utils/path": {
-      "import": "./dist/utils/path.js",
-      "types": "./dist/utils/path.d.ts"
-    }
-  },
-  "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch"
-  },
-  "dependencies": {},
-  "peerDependencies": {
-    "@agent-creator/protocol": "^0.1.0"
-  }
+﻿{
+    "name":  "@agent-creator/shared",
+    "version":  "0.1.0",
+    "type":  "module",
+    "main":  "./dist/index.js",
+    "types":  "./dist/index.d.ts",
+    "exports":  {
+                    ".":  {
+                              "import":  "./dist/index.js",
+                              "types":  "./dist/index.d.ts"
+                          },
+                    "./utils/fs":  {
+                                       "import":  "./dist/utils/fs.js",
+                                       "types":  "./dist/utils/fs.d.ts"
+                                   },
+                    "./utils/path":  {
+                                         "import":  "./dist/utils/path.js",
+                                         "types":  "./dist/utils/path.d.ts"
+                                     }
+                },
+    "scripts":  {
+                    "build":  "tsc",
+                    "dev":  "tsc --watch"
+                },
+    "dependencies":  {
+                         "@agent-creator/protocol":  "0.1.0"
+                     },
+    "peerDependencies":  {
+
+                         }
 }

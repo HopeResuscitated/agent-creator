@@ -1,7 +1,5 @@
-// @agent-creator/protocol
+﻿// @agent-creator/protocol
 // Tool registration and execution contracts
-
-import { ToolResult } from './schemas/task';
 
 export interface ToolDefinition {
   name: string;
@@ -11,7 +9,11 @@ export interface ToolDefinition {
   permissions: PermissionLevel;
 }
 
-export type PermissionLevel = 'read' | 'write' | 'execute' | 'admin';
+export type PermissionLevel =
+  | 'read'
+  | 'write'
+  | 'execute'
+  | 'admin';
 
 export interface ToolRegistry {
   [name: string]: ToolDefinition;
@@ -33,6 +35,6 @@ export interface ToolCallRequest {
  * Result structure for ANY tool execution.
  * NEVER return plain prose - always use this structured format.
  */
-export type ToolExecutionResult<T = any> = 
+export type ToolExecutionResult<T = any> =
   | { success: true; data: T }
   | { success: false; error: string };
