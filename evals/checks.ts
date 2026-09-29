@@ -156,13 +156,33 @@ export const checks: Record<string, (ws: string, original: string) => Result | P
     const log = read(ws, 'docs/verify.log');
     // Break a test on purpose: verify must fail.
     const bad = path.join(ws, 'packages/agent/test/zz-eval-broken.test.ts');
-    fs.writeFileSync(bad, "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('broken', () => assert.equal(1, 2));\n");
-    const broken = sh(ws, 'npm run verify', 400_000);
-    fs.rmSync(bad, { force: true });
+    let broken;
+    try {
+      fs.writeFileSync(bad, "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('broken', () => assert.equal(1, 2));\n");
+      broken = sh(ws, 'npm run verify', 400_000);
+    } finally { fs.rmSync(bad, { force: true }); }
+    // Lint must genuinely run: a .js file ESLint cannot parse (fatal under any config,
+    // even one with no rules) must make verify fail. Not a test file, and ignored by
+    // tsc unless allowJs, so only a real lint step can reject it.
+    const probe = path.join(ws, 'packages/agent/zz-eval-lint-probe.js');
+    const localTsc = path.join(ws, 'node_modules', 'typescript', 'bin', 'tsc');
+    let lintRun, probeTsc;
+    try {
+      fs.writeFileSync(probe, 'export const = ;\n');
+      lintRun = sh(ws, 'npm run verify', 400_000);
+      // Guard: if the sandbox's own tsc rejects the probe, a verify failure is not lint evidence.
+      const t = spawnSync(process.execPath, [localTsc, '--noEmit', '-p', 'packages/agent'], { cwd: ws, encoding: 'utf8', timeout: 180_000 });
+      probeTsc = { code: t.status ?? -1, out: `${t.stdout ?? ''}${t.stderr ?? ''}${t.error ? t.error.message : ''}` };
+    } finally { fs.rmSync(probe, { force: true }); }
+    const probeGone = !fs.existsSync(probe) && !fs.existsSync(bad);
+    const tscClean = probeTsc.code === 0 && !probeTsc.out.includes('zz-eval-lint-probe');
     return all(
       [good.code === 0, `verify fails on a healthy repo: ${tail(good.out, 250)}`],
       [!!log && log.length > 20, 'docs/verify.log missing or empty'],
       [broken.code !== 0, 'verify still passes with a failing test'],
+      [tscClean, `lint probe inconclusive: typecheck also fails with the probe present: ${tail(probeTsc.out, 200)}`],
+      [lintRun.code !== 0, 'verify still passes with a file ESLint cannot parse (lint step not real)'],
+      [probeGone, 'grader error: probe files not removed from sandbox'],
     );
   },
 
