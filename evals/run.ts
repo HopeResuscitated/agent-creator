@@ -79,7 +79,7 @@ function extractTree(sha: string, dest: string) {
 }
 
 /**
- * Eval environment fingerprint. Sandboxes link the LIVE node_modules, which the tag
+ * Eval environment fingerprint. Sandboxes copy the LIVE node_modules, which the tag
  * cannot freeze, so installed packages are compared to the pinned manifest
  * evals/baseline-env.json. Drift does not block a run but is recorded on every result,
  * because scores from different environments are not comparable.
@@ -114,11 +114,36 @@ const drift = envDrift();
 const envLine = drift.length ? `DRIFT (${drift.length}): ${drift.join(', ')}` : 'matches evals/baseline-env.json';
 if (drift.length) console.warn(`WARNING eval environment differs from pinned manifest: ${drift.join(', ')}`);
 
+/**
+ * Give the sandbox its OWN physical copy of the repo's node_modules (the golden source),
+ * so nothing the agent does to its dependencies can reach the repo or other sandboxes.
+ * Links are never copied or followed: each one (npm workspace links such as
+ * @agent-creator/agent -> <repo>/packages/agent) is recreated to point at the same
+ * relative path inside the sandbox. Fails closed if a link would leave the repo or
+ * the sandbox, or if its sandbox target does not exist.
+ */
+function copyNodeModules(dest: string) {
+  const src = path.join(REPO, 'node_modules');
+  const out = path.join(dest, 'node_modules');
+  const within = (p: string, root: string) => { const r = path.relative(root, p); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
+  const links: string[] = [];
+  fs.cpSync(src, out, { recursive: true, verbatimSymlinks: true, filter: (s) => { if (fs.lstatSync(s).isSymbolicLink()) { links.push(s); return false; } return true; } });
+  for (const l of links) {
+    const target = path.resolve(path.dirname(l), fs.readlinkSync(l));
+    if (!within(target, REPO)) throw new Error(`node_modules link leaves the repo: ${l} -> ${target}`);
+    const inSandbox = path.join(dest, path.relative(REPO, target));
+    if (!fs.existsSync(inSandbox)) throw new Error(`node_modules link target missing in sandbox: ${l} -> ${inSandbox}`);
+    const link = path.join(out, path.relative(src, l));
+    fs.symlinkSync(inSandbox, link, 'junction');
+    if (!within(fs.realpathSync(link), dest)) throw new Error(`recreated link leaves the sandbox: ${link}`);
+  }
+}
+
 function copyRepo(dest: string) {
   fs.mkdirSync(dest, { recursive: true });
   extractTree(baselineSha, dest);
   fs.mkdirSync(path.join(dest, 'docs'), { recursive: true });
-  fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(dest, 'node_modules'), 'junction');
+  copyNodeModules(dest);
 }
 
 function prepare(task: Task, root: string): string {
