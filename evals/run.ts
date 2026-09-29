@@ -28,6 +28,9 @@ const flag = (n: string, d?: string) => { const i = argv.indexOf(`--${n}`); retu
 const agent = flag('agent', 'jcode')!;
 const provider = flag('provider', 'ollama')!;
 const model = flag('model', 'hermes-local-32k')!;
+// Optional named jcode provider profile (jcode --provider-profile). Passed through only when supplied.
+const providerProfile = flag('provider-profile');
+if (argv.includes('--provider-profile') && (!providerProfile || providerProfile.startsWith('--'))) { console.error('--provider-profile requires a value'); process.exit(2); }
 // Sandbox starting state = a frozen git commit, never the live working tree, so
 // uncommitted/new work in the real repo cannot leak into a capability score.
 const baseline = flag('baseline', 'eval-baseline-v1')!;
@@ -236,7 +239,7 @@ function runAgent(task: Task, ws: string): { seconds: number; exit: number; tran
   // every process the agent started (children, grandchildren, orphans) and exits 0 only when the job is proven
   // empty. The spawnSync timeout is a backstop: if it fires, the job handle closes (kill-on-close) but the tree
   // was not proven dead, so the task is treated as unsafe to grade.
-  const args = Buffer.from(JSON.stringify(['-p', provider, '-m', model, 'run', '--no-update', prompt]), 'utf8').toString('base64');
+  const args = Buffer.from(JSON.stringify(['-p', provider, '-m', model, ...(providerProfile ? ['--provider-profile', providerProfile] : []), 'run', '--no-update', prompt]), 'utf8').toString('base64');
   const timeoutMs = task.timeoutMin * 60_000;
   const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(EVALS, 'tools', 'run-in-job.ps1'),
     '-Command', 'jcode', '-ArgsB64', args, '-TimeoutMs', String(timeoutMs)], {
