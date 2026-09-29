@@ -86,3 +86,8 @@ Per ~/.jcode/logs/jcode-2026-09-27.log:
 - Before restarting: make sure no other jcode run is active (no probes during an eval), then in PowerShell:
     cd "$HOME\Desktop\agent creator"; node evals/run.ts
 - After the eval: move on to roadmap Step 2 (Orchestrator), whatever the score.
+2026-09-28 baseline: 10/18 (easy 6/6, medium 4/8, hard 0/4), 421 min.
+Zero jcode-noise failures - all 8 fails are capability/tooling gaps.
+Root-cause clusters: (1) test-import conventions T06/T07, (2) registry
+pattern T08, (3) test quality T11, (4) Step-3 work T12/T14, (5) security T15.
+API note: orchestrator must expose runTask().
