@@ -19,21 +19,68 @@ type Task = { id: string; title: string; difficulty: string; category: string; t
 const EVALS = import.meta.dirname;
 const REPO = path.dirname(EVALS);
 const tasks: Task[] = JSON.parse(fs.readFileSync(path.join(EVALS, 'tasks.json'), 'utf8'));
-const SKIP = new Set(['node_modules', '.git', 'evals', 'dist', '.jswarm', 'docs']);
-const COPY_EXCLUDE = new Set(['dist', 'node_modules']); // skipped at any depth when copying the repo
+// Grader-owned top-level path: never part of the subject starting state.
+const GRADER_DIR = 'evals';
 
 const argv = process.argv.slice(2);
 const flag = (n: string, d?: string) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
 const agent = flag('agent', 'jcode')!;
 const provider = flag('provider', 'ollama')!;
 const model = flag('model', 'hermes-local-32k')!;
+// Sandbox starting state = a frozen git commit, never the live working tree, so
+// uncommitted/new work in the real repo cannot leak into a capability score.
+const baseline = flag('baseline', 'eval-baseline-v1')!;
+const baselineSha = (() => {
+  const r = spawnSync('git', ['rev-parse', '--verify', `${baseline}^{commit}`], { cwd: REPO, encoding: 'utf8' });
+  if (r.status !== 0) { console.error(`baseline ref not found: ${baseline}\n${r.stderr}`); process.exit(2); }
+  return r.stdout.trim();
+})();
+
+/**
+ * Write the tracked tree of commit `sha` (minus evals/) into dest as raw blob bytes.
+ * Fails closed on anything raw bytes cannot reproduce faithfully: symlinks, exec bits,
+ * submodules, .gitattributes (checkout filters), or a malformed cat-file response.
+ */
+function extractTree(sha: string, dest: string) {
+  const ls = spawnSync('git', ['ls-tree', '-r', '-z', '--full-tree', sha], { cwd: REPO, encoding: 'buffer', maxBuffer: 64 << 20 });
+  if (ls.status !== 0) throw new Error(`git ls-tree failed: ${ls.stderr}`);
+  const all = ls.stdout.toString('utf8').split('\0').filter(Boolean).map((l) => {
+    const tab = l.indexOf('\t');
+    const [mode, type, obj] = l.slice(0, tab).split(' ');
+    return { mode, type, obj, file: l.slice(tab + 1) };
+  });
+  for (const e of all) {
+    if (e.type !== 'blob') throw new Error(`baseline: unsupported ${e.type} entry: ${e.file}`);
+    if (e.mode !== '100644') throw new Error(`baseline: unsupported mode ${e.mode} (symlink/executable): ${e.file}`);
+    if (e.file.split('/').includes('.gitattributes')) throw new Error(`baseline: .gitattributes present (raw blobs != checkout): ${e.file}`);
+    if (!/^[0-9a-f]{40}$/.test(e.obj) || e.file.split('/').some((s) => s === '' || s === '.' || s === '..')) throw new Error(`baseline: bad entry: ${e.obj} ${e.file}`);
+  }
+  const entries = all.filter((e) => e.file.split('/')[0] !== GRADER_DIR);
+  const cat = spawnSync('git', ['cat-file', '--batch'], { cwd: REPO, input: entries.map((e) => e.obj).join('\n') + '\n', maxBuffer: 256 << 20 });
+  if (cat.status !== 0) throw new Error(`git cat-file failed: ${cat.stderr}`);
+  const buf = cat.stdout as Buffer; let off = 0;
+  for (const e of entries) {
+    const nl = buf.indexOf(10, off);
+    if (nl < 0) throw new Error(`cat-file: truncated header for ${e.file}`);
+    const header = buf.subarray(off, nl).toString('utf8');
+    const m = /^([0-9a-f]{40}) (\S+) (\d+)$/.exec(header);
+    if (!m) throw new Error(`cat-file: bad header "${header}" for ${e.file}`);
+    if (m[1] !== e.obj) throw new Error(`cat-file: id mismatch ${m[1]} != ${e.obj} (${e.file})`);
+    if (m[2] !== 'blob') throw new Error(`cat-file: type ${m[2]} != blob (${e.file})`);
+    const size = Number(m[3]);
+    const end = nl + 1 + size;
+    if (end + 1 > buf.length || buf[end] !== 10) throw new Error(`cat-file: size ${size} does not match payload (${e.file})`);
+    const out = path.join(dest, ...e.file.split('/'));
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, buf.subarray(nl + 1, end));
+    off = end + 1;
+  }
+  if (off !== buf.length) throw new Error(`cat-file: ${buf.length - off} unexpected trailing bytes`);
+}
 
 function copyRepo(dest: string) {
   fs.mkdirSync(dest, { recursive: true });
-  for (const e of fs.readdirSync(REPO)) {
-    if (SKIP.has(e)) continue;
-    fs.cpSync(path.join(REPO, e), path.join(dest, e), { recursive: true, filter: (s) => !path.relative(REPO, s).split(path.sep).some((seg) => COPY_EXCLUDE.has(seg)) });
-  }
+  extractTree(baselineSha, dest);
   fs.mkdirSync(path.join(dest, 'docs'), { recursive: true });
   fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(dest, 'node_modules'), 'junction');
 }
@@ -73,7 +120,7 @@ async function grade(task: Task, ws: string) {
 if (flag('prepare')) {
   const task = tasks.find((t) => t.id === flag('prepare'))!;
   const ws = prepare(task, path.join(os.tmpdir(), 'agent-evals', 'manual'));
-  console.log(`Sandbox: ${ws}\n\nPrompt:\n${task.prompt}\n\nWhen done: node evals/run.ts --grade ${task.id} "${ws}"`);
+  console.log(`Baseline: ${baseline} (${baselineSha})\nSandbox: ${ws}\n\nPrompt:\n${task.prompt}\n\nWhen done: node evals/run.ts --grade ${task.id} "${ws}"`);
   process.exit(0);
 }
 if (flag('grade')) {
@@ -93,7 +140,8 @@ const root = path.join(os.tmpdir(), 'agent-evals', runId);
 const outDir = path.join(EVALS, 'results', runId);
 fs.mkdirSync(outDir, { recursive: true });
 
-console.log(`Run ${runId}: ${selected.length} task(s), agent=${agent}${agent === 'none' ? '' : ` ${provider}/${model}`}\n`);
+console.log(`Run ${runId}: ${selected.length} task(s), agent=${agent}${agent === 'none' ? '' : ` ${provider}/${model}`}, baseline=${baseline} (${baselineSha.slice(0, 10)})\n`);
+fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\n`);
 const results: any[] = [];
 for (const task of selected) {
   process.stdout.write(`${task.id} ${task.title.padEnd(42)} `);
@@ -110,7 +158,7 @@ const passed = results.filter((r) => r.pass).length;
 const byDiff = ['easy', 'medium', 'hard'].map((d) => { const x = results.filter((r) => r.difficulty === d); return `${d} ${x.filter((r) => r.pass).length}/${x.length}`; }).join(', ');
 const minutes = Math.round(results.reduce((a, r) => a + r.seconds, 0) / 60);
 const summary = [
-  `# Eval run ${runId}`, '',
+  `# Eval run ${runId}`, '', `Baseline: ${baseline} (${baselineSha})`, '',
   `Score: **${passed}/${results.length}** (${Math.round((100 * passed) / results.length)}%)  |  ${byDiff}  |  ${minutes} min total`, '',
   '| Task | Title | Level | Result | Time | Changes | Why it failed |', '|---|---|---|---|---|---|---|',
   ...results.map((r) => `| ${r.id} | ${r.title} | ${r.difficulty} | ${r.pass ? 'PASS' : 'FAIL'}${r.timedOut ? ' (timeout)' : ''} | ${r.seconds}s | ${r.diff.replace(/\|/g, '/')} | ${r.pass ? '' : r.detail.replace(/\|/g, '/').replace(/\n/g, ' ').slice(0, 160)} |`),
