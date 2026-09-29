@@ -78,6 +78,42 @@ function extractTree(sha: string, dest: string) {
   if (off !== buf.length) throw new Error(`cat-file: ${buf.length - off} unexpected trailing bytes`);
 }
 
+/**
+ * Eval environment fingerprint. Sandboxes link the LIVE node_modules, which the tag
+ * cannot freeze, so installed packages are compared to the pinned manifest
+ * evals/baseline-env.json. Drift does not block a run but is recorded on every result,
+ * because scores from different environments are not comparable.
+ */
+const ENV_FILE = path.join(EVALS, 'baseline-env.json');
+function envPackages(): Record<string, string> {
+  const nm = path.join(REPO, 'node_modules'); const out: Record<string, string> = {};
+  const add = (name: string) => {
+    try { out[name] = JSON.parse(fs.readFileSync(path.join(nm, name, 'package.json'), 'utf8')).version ?? '?'; } catch { /* not a package */ }
+  };
+  for (const e of fs.readdirSync(nm)) {
+    if (e.startsWith('.')) continue;
+    if (e.startsWith('@')) for (const s of fs.readdirSync(path.join(nm, e))) add(`${e}/${s}`);
+    else add(e);
+  }
+  return Object.fromEntries(Object.entries(out).sort(([a], [b]) => a.localeCompare(b)));
+}
+function envDrift(): string[] {
+  if (!fs.existsSync(ENV_FILE)) return ['no pinned manifest (run: node evals/run.ts --write-env)'];
+  const want: { node: string; packages: Record<string, string> } = JSON.parse(fs.readFileSync(ENV_FILE, 'utf8'));
+  const have = envPackages(); const d: string[] = [];
+  if (want.node.split('.')[0] !== process.version.split('.')[0]) d.push(`node ${want.node} -> ${process.version}`);
+  for (const [k, v] of Object.entries(have)) if (!(k in want.packages)) d.push(`+${k}@${v}`); else if (want.packages[k] !== v) d.push(`${k} ${want.packages[k]} -> ${v}`);
+  for (const k of Object.keys(want.packages)) if (!(k in have)) d.push(`-${k}`);
+  return d;
+}
+if (argv.includes('--write-env')) {
+  fs.writeFileSync(ENV_FILE, JSON.stringify({ baseline, node: process.version, packages: envPackages() }, null, 2) + '\n');
+  console.log(`wrote ${ENV_FILE}`); process.exit(0);
+}
+const drift = envDrift();
+const envLine = drift.length ? `DRIFT (${drift.length}): ${drift.join(', ')}` : 'matches evals/baseline-env.json';
+if (drift.length) console.warn(`WARNING eval environment differs from pinned manifest: ${drift.join(', ')}`);
+
 function copyRepo(dest: string) {
   fs.mkdirSync(dest, { recursive: true });
   extractTree(baselineSha, dest);
@@ -120,7 +156,7 @@ async function grade(task: Task, ws: string) {
 if (flag('prepare')) {
   const task = tasks.find((t) => t.id === flag('prepare'))!;
   const ws = prepare(task, path.join(os.tmpdir(), 'agent-evals', 'manual'));
-  console.log(`Baseline: ${baseline} (${baselineSha})\nSandbox: ${ws}\n\nPrompt:\n${task.prompt}\n\nWhen done: node evals/run.ts --grade ${task.id} "${ws}"`);
+  console.log(`Baseline: ${baseline} (${baselineSha})\nEnvironment: ${envLine}\nSandbox: ${ws}\n\nPrompt:\n${task.prompt}\n\nWhen done: node evals/run.ts --grade ${task.id} "${ws}"`);
   process.exit(0);
 }
 if (flag('grade')) {
@@ -141,7 +177,7 @@ const outDir = path.join(EVALS, 'results', runId);
 fs.mkdirSync(outDir, { recursive: true });
 
 console.log(`Run ${runId}: ${selected.length} task(s), agent=${agent}${agent === 'none' ? '' : ` ${provider}/${model}`}, baseline=${baseline} (${baselineSha.slice(0, 10)})\n`);
-fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\n`);
+fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\n`);
 const results: any[] = [];
 for (const task of selected) {
   process.stdout.write(`${task.id} ${task.title.padEnd(42)} `);
@@ -158,7 +194,7 @@ const passed = results.filter((r) => r.pass).length;
 const byDiff = ['easy', 'medium', 'hard'].map((d) => { const x = results.filter((r) => r.difficulty === d); return `${d} ${x.filter((r) => r.pass).length}/${x.length}`; }).join(', ');
 const minutes = Math.round(results.reduce((a, r) => a + r.seconds, 0) / 60);
 const summary = [
-  `# Eval run ${runId}`, '', `Baseline: ${baseline} (${baselineSha})`, '',
+  `# Eval run ${runId}`, '', `Baseline: ${baseline} (${baselineSha})`, '', `Environment: ${envLine}`, '',
   `Score: **${passed}/${results.length}** (${Math.round((100 * passed) / results.length)}%)  |  ${byDiff}  |  ${minutes} min total`, '',
   '| Task | Title | Level | Result | Time | Changes | Why it failed |', '|---|---|---|---|---|---|---|',
   ...results.map((r) => `| ${r.id} | ${r.title} | ${r.difficulty} | ${r.pass ? 'PASS' : 'FAIL'}${r.timedOut ? ' (timeout)' : ''} | ${r.seconds}s | ${r.diff.replace(/\|/g, '/')} | ${r.pass ? '' : r.detail.replace(/\|/g, '/').replace(/\n/g, ' ').slice(0, 160)} |`),
