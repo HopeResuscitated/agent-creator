@@ -12,9 +12,9 @@
     "rewriteRelativeImportExtensions": true,
     "declaration": true,
     "outDir": "./dist",
-    "rootDir": "..",
+    "rootDir": ".",
     "paths": {
-      "@agent-creator/protocol": ["../protocol/types.ts"]
+      "@agent-creator/protocol": ["../protocol/types.d.ts"]
     }
   },
   "include": ["index.ts", "orchestrator.ts", "tools/**/*.ts"],
