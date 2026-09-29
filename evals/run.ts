@@ -224,18 +224,27 @@ function prepare(task: Task, root: string): string {
   return ws;
 }
 
-function runAgent(task: Task, ws: string): { seconds: number; exit: number; transcript: string } {
+function runAgent(task: Task, ws: string): { seconds: number; exit: number; transcript: string; contained: boolean; containDetail: string } {
   const t0 = Date.now();
-  if (agent === 'none') return { seconds: 0, exit: 0, transcript: '' };
+  if (agent === 'none') return { seconds: 0, exit: 0, transcript: '', contained: true, containDetail: '' };
   if (agent === 'reference') {
     const r = spawnSync('node', [path.join(EVALS, 'reference', 'solve.ts'), task.id, ws], { encoding: 'utf8' });
-    return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout}${r.stderr}` };
+    return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout}${r.stderr}`, contained: true, containDetail: '' };
   }
   const prompt = `${task.prompt}\n\nWork only inside the current folder. Verify your work by actually running it before you finish.`;
-  const r = spawnSync('jcode', ['-p', provider, '-m', model, 'run', '--no-update', prompt], {
-    cwd: ws, input: '\n', encoding: 'utf8', timeout: task.timeoutMin * 60_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true,
+  // jcode runs inside a Windows Job Object (tools/run-in-job.ps1). The wrapper enforces the timeout, then kills
+  // every process the agent started (children, grandchildren, orphans) and exits 0 only when the job is proven
+  // empty. The spawnSync timeout is a backstop: if it fires, the job handle closes (kill-on-close) but the tree
+  // was not proven dead, so the task is treated as unsafe to grade.
+  const args = Buffer.from(JSON.stringify(['-p', provider, '-m', model, 'run', '--no-update', prompt]), 'utf8').toString('base64');
+  const timeoutMs = task.timeoutMin * 60_000;
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(EVALS, 'tools', 'run-in-job.ps1'),
+    '-Command', 'jcode', '-ArgsB64', args, '-TimeoutMs', String(timeoutMs)], {
+    cwd: ws, input: '\n', encoding: 'utf8', timeout: timeoutMs + 120_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true,
   });
-  return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout ?? ''}\n${r.stderr ?? ''}${r.error ? `\n[runner] ${r.error.message}` : ''}` };
+  const contained = r.status === 0 && !r.error;
+  const containDetail = contained ? '' : `agent process tree not proven dead (run-in-job exit=${r.status ?? 'none'}${r.error ? `, ${r.error.message}` : ''})`;
+  return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout ?? ''}\n${r.stderr ?? ''}${r.error ? `\n[runner] ${r.error.message}` : ''}`, contained, containDetail };
 }
 
 async function grade(task: Task, ws: string) {
@@ -273,9 +282,10 @@ for (const task of selected) {
   process.stdout.write(`${task.id} ${task.title.padEnd(42)} `);
   const ws = prepare(task, root);
   const run = runAgent(task, ws);
-  // Dependency integrity before grading: never grade against the agent's node_modules.
-  const envStatus = checkAndRestoreEnv(ws);
-  const g = envStatus.env === 'ENV_RESTORE_FAILED' ? { pass: false, detail: `not graded: ${envStatus.envDetail}` } : await grade(task, ws);
+  // Dependency integrity before grading: never grade against the agent's node_modules. If the agent's
+  // process tree was not proven dead, a survivor could still change the sandbox: skip the check and grading.
+  const envStatus: { env: string; envDetail: string } = run.contained ? checkAndRestoreEnv(ws) : { env: 'UNSAFE_PROCESS_TREE', envDetail: run.containDetail };
+  const g = envStatus.env === 'ENV_RESTORE_FAILED' || envStatus.env === 'UNSAFE_PROCESS_TREE' ? { pass: false, detail: `not graded: ${envStatus.envDetail}` } : await grade(task, ws);
   // A contaminated environment is never counted as a PASS; the grader's verdict (graded on
   // the restored golden tree) is kept alongside as graderPass.
   const pass = g.pass && envStatus.env === 'CLEAN';
