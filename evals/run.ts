@@ -3,6 +3,8 @@
 //   node evals/run.ts                          run all tasks with the default local agent
 //   node evals/run.ts --only T01,T05            run selected tasks
 //   node evals/run.ts --agent jcode --provider lmstudio --model omnicoder-9b
+//   node evals/run.ts --agent jcode --fs-contain     also run the agent under an AppContainer whose only
+//                                                    writable location is the task sandbox (fail-closed)
 //   node evals/run.ts --agent none              no agent: baseline (every task should FAIL)
 //   node evals/run.ts --prepare T06             make a sandbox + print the prompt (for Hermes/Copilot/manual)
 //   node evals/run.ts --grade T06 <sandboxDir>  grade a sandbox someone else worked in
@@ -31,6 +33,11 @@ const model = flag('model', 'hermes-local-32k')!;
 // Optional named jcode provider profile (jcode --provider-profile). Passed through only when supplied.
 const providerProfile = flag('provider-profile');
 if (argv.includes('--provider-profile') && (!providerProfile || providerProfile.startsWith('--'))) { console.error('--provider-profile requires a value'); process.exit(2); }
+// Optional OS-level filesystem containment: run the agent under an AppContainer whose only writable
+// location is the task sandbox (tools/run-in-job.ps1 -WritableRoot). Opt-in because the agent's own
+// runtime dirs (~/.jcode) and the local model endpoint need their own grants before a real jcode run
+// can work inside the container; when the flag is absent the wrapper behaves exactly as before.
+const fsContain = argv.includes('--fs-contain');
 // Sandbox starting state = a frozen git commit, never the live working tree, so
 // uncommitted/new work in the real repo cannot leak into a capability score.
 const baseline = flag('baseline', 'eval-baseline-v1')!;
@@ -242,7 +249,7 @@ function runAgent(task: Task, ws: string): { seconds: number; exit: number; tran
   const args = Buffer.from(JSON.stringify(['-p', provider, '-m', model, ...(providerProfile ? ['--provider-profile', providerProfile] : []), 'run', '--no-update', prompt]), 'utf8').toString('base64');
   const timeoutMs = task.timeoutMin * 60_000;
   const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(EVALS, 'tools', 'run-in-job.ps1'),
-    '-Command', 'jcode', '-ArgsB64', args, '-TimeoutMs', String(timeoutMs)], {
+    '-Command', 'jcode', '-ArgsB64', args, '-TimeoutMs', String(timeoutMs), ...(fsContain ? ['-WritableRoot', ws] : [])], {
     cwd: ws, input: '\n', encoding: 'utf8', timeout: timeoutMs + 120_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true,
   });
   const contained = r.status === 0 && !r.error;
@@ -278,7 +285,7 @@ const root = path.join(os.tmpdir(), 'agent-evals', runId);
 const outDir = path.join(EVALS, 'results', runId);
 fs.mkdirSync(outDir, { recursive: true });
 
-console.log(`Run ${runId}: ${selected.length} task(s), agent=${agent}${agent === 'none' ? '' : ` ${provider}/${model}`}, baseline=${baseline} (${baselineSha.slice(0, 10)})\n`);
+console.log(`Run ${runId}: ${selected.length} task(s), agent=${agent}${agent === 'none' ? '' : ` ${provider}/${model}`}, baseline=${baseline} (${baselineSha.slice(0, 10)})${fsContain ? ', fs-contain=on' : ''}\n`);
 fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\n`);
 const results: any[] = [];
 for (const task of selected) {
