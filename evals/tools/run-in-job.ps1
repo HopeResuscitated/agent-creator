@@ -11,6 +11,25 @@
 #                  agent — it never falls back to the ordinary user token.
 #   -AppContainerName  optional explicit container name; derived from -WritableRoot when empty, so separate
 #                  runs get separate identities and cannot share writable state.
+#   -JcodeHome     optional agent home (JCODE_HOME/JCODE_RUNTIME_DIR/TEMP/TMP). Must be granted to the
+#                  container: it may be inside -WritableRoot or a separate directory, in which case it gets
+#                  its own Modify grant and its own restore. Its runtime subdirectories are pre-created
+#                  here, from the trusted side, because jcode hardens every directory it creates itself with
+#                  a PROTECTED DACL naming only the user SID — which would lock the container out of its own
+#                  runtime directory.
+#   -ToolsRoot     optional directory the agent must be able to run tools from (the runner stages node.exe
+#                  and the relay script there). It is granted RX (never write) to the container and prepended
+#                  to the agent's PATH, because an AppContainer cannot execute a path-qualified image — only
+#                  a PATH-resolved or cwd-relative one. Granted separately and restored like the others.
+#   -ModelUpstream  host:port of the ONE loopback model endpoint this run is allowed to use. When set, a
+#                  broker is created on the trusted side (named pipe, DACL = this user + exactly this run's
+#                  AppContainer SID, Low integrity label) whose upstream is fixed to this address, and a
+#                  relay process is started INSIDE the container that listens on 127.0.0.1:-RelayPort and
+#                  pumps to that pipe. The contained agent can therefore reach only this one endpoint, and
+#                  only through the broker; a non-loopback upstream is refused before the pipe exists.
+#   -RelayPort     TCP port of the in-container relay (default 18437).
+#   -ModelPipe     optional pipe name; derived from -WritableRoot when empty.
+
 #
 # How the tree is contained: this script puts ITSELF into a new job, with KILL_ON_JOB_CLOSE and no
 # breakaway allowed, before starting the agent. Every process the agent starts is then a job member, and
@@ -22,7 +41,7 @@
 # network access) and inherits this script's stdio, so run.ts still sees the agent's output. The sandbox
 # DACL is read before the grant and written back afterwards, and the container profile is deleted on
 # every exit path.
-param([Parameter(Mandatory = $true)][string]$Command, [string]$ArgsB64 = '', [int]$TimeoutMs = 900000, [string]$WritableRoot = '', [string]$AppContainerName = '')
+param([Parameter(Mandatory = $true)][string]$Command, [string]$ArgsB64 = '', [int]$TimeoutMs = 900000, [string]$WritableRoot = '', [string]$AppContainerName = '', [string]$JcodeHome = '', [string]$ToolsRoot = '', [string]$ModelUpstream = '', [string]$ModelPipe = '', [int]$RelayPort = 18437)
 $ErrorActionPreference = 'Stop'
 function Note($m) { [Console]::Error.WriteLine("[run-in-job $([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())] $m") }
 # ABS-2: write a DACL back from its exact SDDL form (access section only), so a grant can be undone precisely.
@@ -148,10 +167,14 @@ public static class EvalJob {
   public static string ContainerSidString() { if (containerSid == IntPtr.Zero) return ""; IntPtr str; if (!ConvertSidToStringSid(containerSid, out str)) return ""; string s = Marshal.PtrToStringUni(str); LocalFree(str); return s; }
   [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr h);
 
-  // Launch exe under the AppContainer identity in the current job. Returns exit code.
-  public static uint Launch(string exe, string args, string cwd, int timeoutMs, out uint pid, out bool timedOut) {
-    timedOut = false;
-    var si = new STARTUPINFOEX();
+  // NOTE: no custom environment block is built here. CreateProcess on this host rejects a block that was
+    // marshalled from a managed string (ERROR_ENVVAR_NOT_FOUND, 203), so the wrapper instead REDUCES its own
+    // process environment to an explicit allow-list (Remove-InheritedEnvironment) and lets the child inherit
+    // that. See the header for why the agent must never see the caller's environment.
+    // Start exe under the AppContainer identity in the current job. Returns the pid, does not wait.
+    public static uint Start(string exe, string args, string cwd, IntPtr env, out IntPtr process) {
+      process = IntPtr.Zero;
+      var si = new STARTUPINFOEX();
     si.StartupInfo.cb = Marshal.SizeOf(typeof(STARTUPINFOEX));   // verified by diag2.ps1: 104 -> ERROR_INVALID_PARAMETER(87), 112 works
     IntPtr size = IntPtr.Zero;
     InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref size);   // expected to fail: returns needed size
@@ -168,17 +191,97 @@ public static class EvalJob {
         // let the agent inherit this script's stdio so run.ts still sees its output
         foreach (int s in new[] { -10, -11, -12 }) { IntPtr h = GetStdHandle(s); if (h != IntPtr.Zero && h != (IntPtr)(-1)) SetHandleInformation(h, 1, 1); }
         PROCESS_INFORMATION pi;
-        string cmdline = Quote(exe) + (args.Length > 0 ? " " + args : "");
-        if (!CreateProcess(exe, cmdline, IntPtr.Zero, IntPtr.Zero, true, EXTENDED_STARTUPINFO_PRESENT, IntPtr.Zero, cwd, ref si, out pi)) throw Err("CreateProcess(AppContainer)");
-        CloseHandle(pi.hThread);
-        pid = pi.dwProcessId;
-        uint w = WaitForSingleObject(pi.hProcess, (uint)timeoutMs);
-        timedOut = (w == 0x00000102);   // WAIT_TIMEOUT
-        uint code; if (!GetExitCodeProcess(pi.hProcess, out code)) throw Err("GetExitCodeProcess");
-        CloseHandle(pi.hProcess);
-        return code;
-      } finally { Marshal.FreeHGlobal(capsPtr); }
-    } finally { DeleteProcThreadAttributeList(list); Marshal.FreeHGlobal(list); }
+                string cmdline = Quote(exe) + (args.Length > 0 ? " " + args : "");
+                                if (!CreateProcess(exe, cmdline, IntPtr.Zero, IntPtr.Zero, true, EXTENDED_STARTUPINFO_PRESENT, env, cwd, ref si, out pi)) throw Err("CreateProcess(AppContainer)");
+                CloseHandle(pi.hThread);
+                process = pi.hProcess;
+                return pi.dwProcessId;
+              } finally { Marshal.FreeHGlobal(capsPtr); }
+            } finally { DeleteProcThreadAttributeList(list); Marshal.FreeHGlobal(list); }
+          }
+          // Wait for a process started with Start(); returns its exit code and closes the handle.
+          public static uint WaitExit(IntPtr h, int timeoutMs, out bool timedOut) {
+            uint w = WaitForSingleObject(h, (uint)timeoutMs);
+            timedOut = (w == 0x00000102);   // WAIT_TIMEOUT
+            uint code; if (!GetExitCodeProcess(h, out code)) throw Err("GetExitCodeProcess");
+            CloseHandle(h);
+            return code;
+          }
+          // Launch = Start + WaitExit (the ordinary single-agent path).
+            public static uint Launch(string exe, string args, string cwd, IntPtr env, int timeoutMs, out uint pid, out bool timedOut) {
+              IntPtr h; pid = Start(exe, args, cwd, env, out h);
+              return WaitExit(h, timeoutMs, out timedOut);
+            }
+          // Terminate a process this script started (the in-container relay) and close its handle.
+          public static bool Kill(IntPtr h) {
+            bool ok = TerminateProcess(h, 1);
+            WaitForSingleObject(h, 5000);
+            CloseHandle(h);
+            return ok;
+          }
+}
+'@
+  # Model broker (trusted side): ONE named pipe whose DACL names exactly this run's AppContainer SID, Low
+  # integrity label, every connection forwarded to ONE fixed loopback upstream chosen here. The client
+  # cannot choose a destination, and a non-loopback upstream is refused before the pipe exists.
+  Add-Type -TypeDefinition @'
+using System; using System.IO; using System.IO.Pipes; using System.Net; using System.Net.Sockets; using System.Threading; using System.Threading.Tasks;
+using System.Runtime.InteropServices; using Microsoft.Win32.SafeHandles; using System.Security.Principal;
+public static class ModelBroker {
+  [StructLayout(LayoutKind.Sequential)] struct SECURITY_ATTRIBUTES { public int nLength; public IntPtr lpSecurityDescriptor; public bool bInheritHandle; }
+  [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool ConvertStringSecurityDescriptorToSecurityDescriptor(string sddl, uint rev, out IntPtr sd, IntPtr size);
+  [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern SafePipeHandle CreateNamedPipe(string name, uint openMode, uint pipeMode, uint max, uint outBuf, uint inBuf, uint timeout, ref SECURITY_ATTRIBUTES sa);
+  [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr h);
+  const uint PIPE_ACCESS_DUPLEX = 3, FILE_FLAG_OVERLAPPED = 0x40000000, FILE_FLAG_FIRST_PIPE_INSTANCE = 0x00080000, PIPE_REJECT_REMOTE_CLIENTS = 8;
+  static readonly string Line = Environment.NewLine;
+  static int connections; static string logPath; static volatile bool stop; static Thread worker;
+  public static string Sddl = "";
+  public static int Connections { get { return connections; } }
+  static void Log(string m) {
+    string l = "[model-broker " + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + "] " + m;
+    try { Console.Error.WriteLine(l); } catch { }
+    if (!string.IsNullOrEmpty(logPath)) lock (typeof(ModelBroker)) { try { File.AppendAllText(logPath, l + Line); } catch { } }
+  }
+  static void Pump(Stream a, Stream b) {
+    Task t1 = a.CopyToAsync(b), t2 = b.CopyToAsync(a);
+    Task.WhenAny(t1, t2).ContinueWith(_ => { try { a.Dispose(); } catch { } try { b.Dispose(); } catch { } });
+  }
+  static NamedPipeServerStream NewInstance(string pipe, bool first) {
+    IntPtr sd; if (!ConvertStringSecurityDescriptorToSecurityDescriptor(Sddl, 1, out sd, IntPtr.Zero)) throw new Exception("SDDL conversion failed: " + Marshal.GetLastWin32Error());
+    try {
+      var sa = new SECURITY_ATTRIBUTES { nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)), lpSecurityDescriptor = sd, bInheritHandle = false };
+      var h = CreateNamedPipe(@"\\.\pipe\" + pipe, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0), PIPE_REJECT_REMOTE_CLIENTS, 255, 65536, 65536, 0, ref sa);
+      if (h.IsInvalid) throw new Exception("CreateNamedPipe failed: " + Marshal.GetLastWin32Error());
+      return new NamedPipeServerStream(PipeDirection.InOut, true, false, h);
+    } finally { LocalFree(sd); }
+  }
+  public static void Start(string pipe, string acSid, string host, int port, string log) {
+    logPath = log;
+    var ip = IPAddress.Parse(host);
+    if (!IPAddress.IsLoopback(ip)) throw new Exception("non-loopback upstream refused: " + host);
+    new SecurityIdentifier(acSid);
+    string me = WindowsIdentity.GetCurrent().User.Value;
+    Sddl = "D:P(A;;GA;;;" + me + ")(A;;0x12019b;;;" + acSid + ")S:(ML;;NW;;;LW)";
+    var first = NewInstance(pipe, true);
+    Log("listening pipe=\\\\.\\pipe\\" + pipe + " sddl=" + Sddl + " upstream(fixed)=" + host + ":" + port);
+    worker = new Thread(() => {
+      var srv = first;
+      while (!stop) {
+        try { srv.WaitForConnection(); } catch (Exception e) { if (!stop) Log("wait failed: " + e.Message); break; }
+        if (stop) { srv.Dispose(); break; }
+        int n = Interlocked.Increment(ref connections);
+        var cur = srv;
+        try { srv = NewInstance(pipe, false); } catch (Exception e) { Log("next instance failed: " + e.Message); srv = null; }
+        try { var tcp = new TcpClient(); tcp.Connect(ip, port); Log("conn#" + n + " pipe -> " + host + ":" + port); Pump(cur, tcp.GetStream()); }
+        catch (Exception e) { Log("conn#" + n + " upstream connect failed: " + e.Message); cur.Dispose(); }
+        if (srv == null) break;
+      }
+    });
+    worker.IsBackground = true; worker.Start();
+  }
+  public static void Stop() {
+    stop = true;
+    Log("stopped after " + connections + " connection(s)");
   }
 }
 '@
@@ -231,6 +334,187 @@ function Restore-Sandbox {
     elseif ($after -ne $aclBefore) { Note "sandbox acl restore: residual difference is the DACL control-flag bit only (ACE set identical); raw after=$after" }
   } catch { Note "sandbox acl restore failed: $($_.Exception.Message)" }
   try { Note "appcontainer profile deleted=$([EvalJob]::DeleteContainer($containerName))" } catch { Note "appcontainer profile delete failed: $($_.Exception.Message)" }
+  }
+
+  # ---------- agent home (JCODE_HOME), tool root, and the contained model path ----------
+  # Nothing here widens the container's filesystem reach: the agent home gets Modify only because the agent
+  # must write its own runtime state there, the tool root gets RX only, and both are restored (and the
+  # container profile deleted) on every exit path. The model path is the narrow one: the agent may reach
+  # exactly one in-container loopback port, which the relay pumps into a pipe whose DACL names this run's
+  # container SID, and the broker dials exactly one fixed loopback upstream.
+  $script:homeGranted = $false
+  $script:toolsGranted = $false
+  $script:aclHomeBefore = ''
+  $script:aclToolsBefore = ''
+  $script:relayStarted = $false
+  $script:relayHandle = [IntPtr]::Zero
+  $script:relayPid = 0
+  $script:brokerStarted = $false
+  function Stop-ModelAccess {
+    if ($script:relayStarted) {
+      try { $null = [EvalJob]::Kill($script:relayHandle); Note "in-container relay pid=$($script:relayPid) terminated" }
+      catch { Note "relay terminate failed: $($_.Exception.Message)" }
+      $script:relayStarted = $false
+    }
+    if ($script:brokerStarted) {
+      try { [ModelBroker]::Stop(); Note "model broker stopped after $([ModelBroker]::Connections) connection(s)" } catch { Note "broker stop failed: $($_.Exception.Message)" }
+      $script:brokerStarted = $false
+    }
+  }
+  function Restore-ExtraAcls {
+    foreach ($g in @(@{ granted = $script:homeGranted; path = $JcodeHome; before = $script:aclHomeBefore; what = 'agent home' },
+                     @{ granted = $script:toolsGranted; path = $ToolsRoot; before = $script:aclToolsBefore; what = 'tools root' })) {
+      if (-not $g.granted) { continue }
+      try {
+        $sidString = [EvalJob]::ContainerSidString()
+        & icacls $g.path /remove:g "*$sidString" | Out-Null
+        $after = (Get-Acl -LiteralPath $g.path).Sddl
+        if ($after -ne $g.before) { Restore-Sddl $g.path $g.before; $after = (Get-Acl -LiteralPath $g.path).Sddl }
+        Note "$($g.what) acl restore: identical-to-original=$($after -eq $g.before) aces-identical=$((Aces $g.before) -eq (Aces $after))"
+        if ((Aces $g.before) -ne (Aces $after)) { Note "$($g.what) acl ACE SET MISMATCH after=$after" }
+      } catch { Note "$($g.what) acl restore failed: $($_.Exception.Message)" }
+    }
+    $script:homeGranted = $false; $script:toolsGranted = $false
+  }
+  function Grant-ContainerAcl($path, $rights, $what) {
+    $sidString = [EvalJob]::ContainerSidString()
+    $before = (Get-Acl -LiteralPath $path).Sddl
+    & icacls $path /grant "*${sidString}:(OI)(CI)$rights" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "icacls grant failed on $what (exit $LASTEXITCODE)" }
+    if ((Get-Acl -LiteralPath $path).Sddl -notmatch [regex]::Escape($sidString)) { throw "grant not present on $what DACL after icacls" }
+    Note "$($what) acl: granted $rights to $sidString on $path"
+    return $before
+  }
+  function Within($child, $parent) {
+    if (-not $child) { return $false }
+    $c = [IO.Path]::GetFullPath($child).TrimEnd('\').ToLowerInvariant()
+    $p = [IO.Path]::GetFullPath($parent).TrimEnd('\').ToLowerInvariant()
+    return ($c -eq $p -or $c.StartsWith($p + '\'))
+  }
+
+  # Sanitized child environment. CreateProcess on this host rejects a custom block marshalled from a managed
+  # string (ERROR_ENVVAR_NOT_FOUND, 203), so instead the wrapper REDUCES ITS OWN process environment to this
+  # allow-list before starting anything inside the container, and the child inherits exactly that. No API key,
+  # token, proxy or other secret from the caller's environment can reach the agent this way.
+  $envKeys = @('PATH', 'SystemRoot', 'windir', 'SystemDrive', 'COMSPEC', 'PATHEXT', 'OS',
+      'PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432', 'NUMBER_OF_PROCESSORS', 'ProgramFiles', 'ProgramFiles(x86)', 'CommonProgramFiles',
+      'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE', 'HOME', 'APPDATA', 'LOCALAPPDATA',
+      'JCODE_HOME', 'JCODE_RUNTIME_DIR', 'JCODE_NO_TELEMETRY', 'DO_NOT_TRACK', 'LANG', 'LC_ALL', 'NODE_OPTIONS')
+  $script:envSanitized = $false
+  function Remove-InheritedEnvironment {
+    if ($script:envSanitized) { return }
+    $keep = @{}
+    foreach ($k in $script:envKeys) {
+      $v = [Environment]::GetEnvironmentVariable($k, 'Process')
+      if ($null -ne $v) { $keep[$k] = $v }
+    }
+    $dropped = @()
+      foreach ($n in @([Environment]::GetEnvironmentVariables('Process').Keys)) {
+        if (-not $keep.ContainsKey($n)) {
+          $dropped += $n
+          try { [Environment]::SetEnvironmentVariable($n, $null, 'Process') } catch { Note "could not drop inherited variable $n : $($_.Exception.Message)" }
+        }
+      }
+      # Fail closed: every variable we tried to drop must actually be gone, or the agent would inherit it.
+      $survivors = @($dropped | Where-Object { $null -ne [Environment]::GetEnvironmentVariable($_, 'Process') })
+      if ($survivors.Count) { throw "inherited environment variables survived sanitization: $($survivors -join ',')" }
+    foreach ($k in $keep.Keys) { [Environment]::SetEnvironmentVariable($k, $keep[$k], 'Process') }
+    $left = @([Environment]::GetEnvironmentVariables('Process').Keys)
+    foreach ($k in $script:envKeys) { if (-not ($left -contains $k) -and $keep.ContainsKey($k)) { throw "allow-listed variable $k did not survive sanitization" } }
+    $script:envSanitized = $true
+    Note "agent environment: process environment reduced to $($left.Count) allow-listed variables (dropped $($dropped.Count) inherited: $(($dropped | Select-Object -First 12) -join ','))"
+  }
+
+  if ($JcodeHome -or $ToolsRoot -or $ModelUpstream) {
+    try {
+      if (-not $useAC) { throw "agent home / tools root / model access require -WritableRoot (contained mode)" }
+      if ($JcodeHome) {
+            $JcodeHome = [IO.Path]::GetFullPath($JcodeHome)
+            # Pre-create the runtime tree from the TRUSTED side: jcode rewrites the DACL of any directory it
+            # creates itself to a protected one naming only the user SID, which locks the container out.
+            foreach ($d in @('logs', 'sessions', 'active_pids', 'streaming_pids', 'migrations', 'cache', 'config', 'state', 'tmp', 'runtime', 'appdata', 'localappdata')) {
+              $p = Join-Path $JcodeHome $d
+              if (-not (Test-Path -LiteralPath $p)) { $null = New-Item -ItemType Directory -Force -Path $p }
+            }
+            if (Within $JcodeHome $WritableRoot) { Note "agent home is inside the sandbox root (covered by the sandbox grant): $JcodeHome" }
+            else { $script:aclHomeBefore = Grant-ContainerAcl $JcodeHome 'M' 'agent home'; $script:homeGranted = $true }
+            $env:JCODE_HOME = $JcodeHome
+            $env:JCODE_RUNTIME_DIR = Join-Path $JcodeHome 'runtime'
+            $env:TEMP = Join-Path $JcodeHome 'tmp'; $env:TMP = $env:TEMP
+            $env:JCODE_NO_TELEMETRY = '1'; $env:DO_NOT_TRACK = '1'
+      # The container's token has no read-attributes right on C:\ or on the profile chain, so node's
+      # realpathSync-based path resolution (which walks every component from C:\) fails with EPERM for ANY
+      # script file. --preserve-symlinks-main skips that walk for the entry script and --preserve-symlinks
+      # does the same for module resolution, so node/npm/tsx work inside the sandbox while the sandbox's
+      # own node_modules links stay inside it. Without these the contained agent cannot run any node tool.
+      $env:NODE_OPTIONS = '--preserve-symlinks --preserve-symlinks-main'
+            # The container cannot read the real profile anyway; point the profile variables at the agent home so
+            # nothing the agent does even looks like it is addressing the user's real profile.
+            $env:USERPROFILE = $JcodeHome; $env:HOME = $JcodeHome
+            $env:APPDATA = Join-Path $JcodeHome 'appdata'; $env:LOCALAPPDATA = Join-Path $JcodeHome 'localappdata'
+            Note "agent home env: JCODE_HOME=$($env:JCODE_HOME) JCODE_RUNTIME_DIR=$($env:JCODE_RUNTIME_DIR) TEMP=$($env:TEMP) USERPROFILE=$($env:USERPROFILE)"
+          }
+      if ($ToolsRoot) {
+        $ToolsRoot = [IO.Path]::GetFullPath($ToolsRoot)
+        if (-not (Test-Path -LiteralPath $ToolsRoot)) { throw "tools root does not exist: $ToolsRoot" }
+        if (Within $ToolsRoot $WritableRoot) { Note "tools root is inside the sandbox root: $ToolsRoot" }
+        else { $script:aclToolsBefore = Grant-ContainerAcl $ToolsRoot 'RX' 'tools root'; $script:toolsGranted = $true }
+        $env:PATH = "$ToolsRoot;$env:PATH"
+        Note "agent PATH prepended with tools root: $ToolsRoot"
+      }
+      if ($ModelUpstream) {
+            Remove-InheritedEnvironment
+            if (-not $JcodeHome) { throw "ModelUpstream requires -JcodeHome (broker/relay logs and readiness marker live there)" }
+        if (-not $ToolsRoot) { throw "ModelUpstream requires -ToolsRoot (the in-container relay runs from there)" }
+        $parts = $ModelUpstream.Split(':')
+        if ($parts.Count -ne 2) { throw "ModelUpstream must be host:port, got '$ModelUpstream'" }
+        $upHost = $parts[0]; $upPort = [int]$parts[1]
+        $relayScript = Join-Path $ToolsRoot 'model-relay.mjs'
+        $nodeExe = Join-Path $ToolsRoot 'node.exe'
+        foreach ($f in @($relayScript, $nodeExe)) { if (-not (Test-Path -LiteralPath $f)) { throw "missing $f" } }
+        if (-not $ModelPipe) {
+          $sha = [System.Security.Cryptography.SHA1]::Create()
+          $ModelPipe = 'evalmodel-' + ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($WritableRoot.ToLowerInvariant())))).Replace('-', '').Substring(0, 12).ToLowerInvariant()
+        }
+        $brokerLog = Join-Path $JcodeHome 'broker.log'
+        $relayLog = Join-Path $JcodeHome 'relay.log'
+        [ModelBroker]::Start($ModelPipe, [EvalJob]::ContainerSidString(), $upHost, $upPort, $brokerLog)
+        $script:brokerStarted = $true
+        Note "model broker: pipe=\\.\pipe\$ModelPipe upstream(fixed)=${upHost}:${upPort} log=$brokerLog"
+        $relayArgs = ([EvalJob]::Quote('--preserve-symlinks-main')) + ' ' + ([EvalJob]::Quote($relayScript)) + ' ' + $RelayPort + ' ' + ([EvalJob]::Quote($ModelPipe)) + ' ' + ([EvalJob]::Quote($relayLog))
+        $script:relayPid = [EvalJob]::Start($nodeExe, $relayArgs, $WritableRoot, [IntPtr]::Zero, [ref]$script:relayHandle)
+        $script:relayStarted = $true
+        Note "in-container relay: pid=$($script:relayPid) exe=$nodeExe args=$relayArgs"
+        $ready = $false
+        for ($i = 0; $i -lt 100; $i++) {
+          Start-Sleep -Milliseconds 200
+          if (Test-Path -LiteralPath $relayLog) {
+            if ((Get-Content -Raw -LiteralPath $relayLog) -match 'listening 127\.0\.0\.1:') { $ready = $true; break }
+          }
+        }
+        if (-not $ready) { throw "in-container relay did not report listening on 127.0.0.1:$RelayPort within 20s" }
+        Note "in-container relay ready on 127.0.0.1:$RelayPort"
+      }
+    } catch {
+      Note "agent home / model access setup failed, agent not started: $($_.Exception.Message)"
+      Stop-ModelAccess
+      Restore-ExtraAcls
+      try { [void][EvalJob]::DeleteContainer($containerName) } catch { }
+      exit 4
+    }
+  }
+
+# Sanitized child environment (fallback path: a contained run with no model upstream or agent home still
+# gets one, so the agent can never inherit the caller's environment). See Remove-InheritedEnvironment.
+if ($useAC) {
+  try { Remove-InheritedEnvironment }
+  catch {
+    Note "environment sanitization failed, agent not started: $($_.Exception.Message)"
+    Stop-ModelAccess
+    Restore-ExtraAcls
+    Restore-Sandbox
+    exit 4
+  }
 }
 
 $agentExit = 'not-started'
@@ -239,14 +523,16 @@ if ($useAC) {
   try {
     $argline = (($argv | ForEach-Object { [EvalJob]::Quote([string]$_) }) -join ' ')
     Note "launching under appcontainer: exe=$exe cwd=$WritableRoot"
-    $code = [EvalJob]::Launch($exe, $argline, $WritableRoot, $TimeoutMs, [ref]$agentPid, [ref]$acTimedOut)
+    $code = [EvalJob]::Launch($exe, $argline, $WritableRoot, [IntPtr]::Zero, $TimeoutMs, [ref]$agentPid, [ref]$acTimedOut)
     $agentExit = if ($acTimedOut) { 'timeout' } else { $code }
     Note "agent pid=$agentPid exe=$exe"
   } catch {
-    Note "launch failed, agent not started: $($_.Exception.Message)"
-    Restore-Sandbox
-    exit 4
-  }
+      Note "launch failed, agent not started: $($_.Exception.Message)"
+      Stop-ModelAccess
+      Restore-ExtraAcls
+      Restore-Sandbox
+      exit 4
+    }
 } else {
   try {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -264,6 +550,9 @@ if (-not $useAC) {
 }
 # ABS-2: restore the sandbox ACL BEFORE Drain caps this job to one active process — a process-cap job
 # cannot start icacls.exe, and the ACL write is synchronous, so this also can't race a member's write.
+# The relay is a job member, so it is stopped first: it must not be reported as a survivor of the agent.
+Stop-ModelAccess
+Restore-ExtraAcls
 Restore-Sandbox
 try {
   $ok = $false; $killed = [EvalJob]::Drain([ref]$ok)

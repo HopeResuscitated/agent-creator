@@ -3,16 +3,27 @@
 //   node evals/run.ts                          run all tasks with the default local agent
 //   node evals/run.ts --only T01,T05            run selected tasks
 //   node evals/run.ts --agent jcode --provider lmstudio --model omnicoder-9b
-//   node evals/run.ts --agent jcode --fs-contain     also run the agent under an AppContainer whose only
-//                                                    writable location is the task sandbox (fail-closed)
 //   node evals/run.ts --agent none              no agent: baseline (every task should FAIL)
 //   node evals/run.ts --prepare T06             make a sandbox + print the prompt (for Hermes/Copilot/manual)
 //   node evals/run.ts --grade T06 <sandboxDir>  grade a sandbox someone else worked in
+//
+// jcode runs are CONTAINED by default: the agent runs under a Windows AppContainer whose only writable
+// locations are the task sandbox and a sandbox-local agent home (JCODE_HOME), inside the existing Job
+// Object, with no direct network access at all. Its model access goes through a named-pipe broker on the
+// trusted side whose upstream is fixed to one loopback endpoint (--model-upstream, or the provider's own
+// default port). Setup fails closed: if the container, the ACLs, the broker or the in-container relay
+// cannot be established, the agent does not start and the task is not graded.
+//
+//   --model-upstream host:port   the ONE loopback model endpoint the contained agent may use
+//                                (default: ollama 127.0.0.1:11434, lmstudio 127.0.0.1:1234)
+//   --no-contain-unsafe          DEBUG ONLY: run the agent under the ordinary user token, no AppContainer,
+//                                no broker. Never selected automatically, printed loudly in the run header.
 //
 // Every task runs in a fresh copy of the repo, so the real repo is never touched.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import net from 'node:net';
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import { checks } from './checks.ts';
@@ -33,11 +44,20 @@ const model = flag('model', 'hermes-local-32k')!;
 // Optional named jcode provider profile (jcode --provider-profile). Passed through only when supplied.
 const providerProfile = flag('provider-profile');
 if (argv.includes('--provider-profile') && (!providerProfile || providerProfile.startsWith('--'))) { console.error('--provider-profile requires a value'); process.exit(2); }
-// Optional OS-level filesystem containment: run the agent under an AppContainer whose only writable
-// location is the task sandbox (tools/run-in-job.ps1 -WritableRoot). Opt-in because the agent's own
-// runtime dirs (~/.jcode) and the local model endpoint need their own grants before a real jcode run
-// can work inside the container; when the flag is absent the wrapper behaves exactly as before.
-const fsContain = argv.includes('--fs-contain');
+// Containment is the DEFAULT for jcode runs: AppContainer + sandbox ACL + agent home + pipe broker, all
+// fail-closed. --no-contain-unsafe is the explicit, loud debug bypass and is never chosen automatically.
+const noContain = argv.includes('--no-contain-unsafe');
+const fsContain = agent === 'jcode' && !noContain;
+const providerDefaultUpstream: Record<string, string> = { ollama: '127.0.0.1:11434', lmstudio: '127.0.0.1:1234' };
+const modelUpstream = flag('model-upstream') ?? providerDefaultUpstream[provider] ?? null;
+if (fsContain && !modelUpstream) {
+  console.error(`contained runs need --model-upstream host:port for provider '${provider}' (loopback only)`);
+  process.exit(2);
+}
+if (modelUpstream && !/^(127\.\d+\.\d+\.\d+|localhost):\d{1,5}$/.test(modelUpstream)) {
+  console.error(`--model-upstream must be a loopback host:port, got '${modelUpstream}'`);
+  process.exit(2);
+}
 // Sandbox starting state = a frozen git commit, never the live working tree, so
 // uncommitted/new work in the real repo cannot leak into a capability score.
 const baseline = flag('baseline', 'eval-baseline-v1')!;
@@ -234,27 +254,121 @@ function prepare(task: Task, root: string): string {
   return ws;
 }
 
-function runAgent(task: Task, ws: string): { seconds: number; exit: number; transcript: string; contained: boolean; containDetail: string } {
+/**
+ * Per-run tool staging: node itself plus the in-container relay script, in a directory the contained agent
+ * may read and execute but never write. Node is COPIED rather than granted in place, because the user's
+ * node install carries no AppContainer ACE and granting one would reach outside the sandbox.
+ */
+function stageTools(root: string): string {
+  const dir = path.join(root, '_agent-tools');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(process.execPath, path.join(dir, 'node.exe'));
+  fs.copyFileSync(path.join(EVALS, 'tools', 'model-relay.mjs'), path.join(dir, 'model-relay.mjs'));
+  return dir;
+}
+
+/**
+ * A contained run's agent home (JCODE_HOME) and the provider config that points jcode at the in-container
+ * relay. No credentials: the placeholder key is not a secret, and the relay only ever forwards to the one
+ * endpoint the broker was started with, so there is nothing here that grants access to anything.
+ */
+function writeAgentHome(home: string, relayPort: number, model: string): void {
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, 'config.toml'), `# Generated by evals/run.ts for a contained run.
+# No credentials, no MCP, no telemetry, no update checks. The provider points at the in-container relay,
+# which is the agent's only reachable endpoint; the broker behind it dials the one approved upstream.
+[server]
+wake_mode = "internal"
+
+[tools]
+profile = "minimal"
+enabled = ["bash", "read", "write", "edit", "ls"]
+mcp_tools = "deferred"
+
+[features]
+check_updates = false
+memory = false
+swarm = false
+mermaid = false
+auto_poke = false
+persist_memory_injections = false
+
+[provider]
+default_model = "${model}"
+default_provider = "evalbroker"
+cross_provider_failover = "off"
+max_retries = 1
+stream_idle_timeout_secs = 120
+
+[providers.evalbroker]
+type = "open-ai-compatible"
+base_url = "http://127.0.0.1:${relayPort}/v1"
+auth = "bearer"
+api_key = "evalbroker-not-a-credential"
+default_model = "${model}"
+provider_routing = false
+model_catalog = false
+allow_provider_pinning = false
+disable_reasoning_heuristics = true
+
+[[providers.evalbroker.models]]
+id = "${model}"
+context_window = 32768
+
+[agents]
+swarm_spawn_mode = "inline"
+swarm_max_concurrent_agents = 1
+memory_sidecar_enabled = false
+
+[ambient]
+enabled = false
+allow_api_keys = false
+
+[telemetry]
+enabled = false
+`);
+}
+
+/**
+ * Port for the in-container relay. The relay fails closed if it cannot bind (the wrapper then exits 4 and
+ * the task is not graded), so a port collision costs a task, never containment.
+ */
+function relayPort(): number { return 20000 + crypto.randomInt(0, 20000); }
+
+function runAgent(task: Task, ws: string, toolsRoot: string): { seconds: number; exit: number; transcript: string; contained: boolean; containDetail: string; home: string } {
   const t0 = Date.now();
-  if (agent === 'none') return { seconds: 0, exit: 0, transcript: '', contained: true, containDetail: '' };
+  const home = `${ws}.agent-home`;
+  if (agent === 'none') return { seconds: 0, exit: 0, transcript: '', contained: true, containDetail: '', home };
   if (agent === 'reference') {
     const r = spawnSync('node', [path.join(EVALS, 'reference', 'solve.ts'), task.id, ws], { encoding: 'utf8' });
-    return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout}${r.stderr}`, contained: true, containDetail: '' };
+    return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout}${r.stderr}`, contained: true, containDetail: '', home };
   }
   const prompt = `${task.prompt}\n\nWork only inside the current folder. Verify your work by actually running it before you finish.`;
-  // jcode runs inside a Windows Job Object (tools/run-in-job.ps1). The wrapper enforces the timeout, then kills
-  // every process the agent started (children, grandchildren, orphans) and exits 0 only when the job is proven
-  // empty. The spawnSync timeout is a backstop: if it fires, the job handle closes (kill-on-close) but the tree
-  // was not proven dead, so the task is treated as unsafe to grade.
-  const args = Buffer.from(JSON.stringify(['-p', provider, '-m', model, ...(providerProfile ? ['--provider-profile', providerProfile] : []), 'run', '--no-update', prompt]), 'utf8').toString('base64');
+  // The agent runs inside a Windows Job Object (tools/run-in-job.ps1). The wrapper enforces the timeout,
+  // then kills every process the agent started (children, grandchildren, orphans) and exits 0 only when the
+  // job is proven empty. The spawnSync timeout is a backstop: if it fires, the job handle closes
+  // (kill-on-close) but the tree was not proven dead, so the task is treated as unsafe to grade.
+  const contain = fsContain;
+  let containArgs: string[] = [];
+  if (contain) {
+    const port = relayPort();
+    writeAgentHome(home, port, model);
+    containArgs = ['-WritableRoot', ws, '-JcodeHome', home, '-ToolsRoot', toolsRoot, '-ModelUpstream', modelUpstream!, '-RelayPort', String(port)];
+  }
+  const agentArgs = contain
+    // Contained: the agent may only speak to the in-container relay, so the provider is always the
+    // OpenAI-compatible profile generated above, whatever the requested provider is.
+    ? ['-p', 'openai-compatible', '--provider-profile', 'evalbroker', '-m', model, 'run', '--no-update', prompt]
+    : ['-p', provider, '-m', model, ...(providerProfile ? ['--provider-profile', providerProfile] : []), 'run', '--no-update', prompt];
+  const args = Buffer.from(JSON.stringify(agentArgs), 'utf8').toString('base64');
   const timeoutMs = task.timeoutMin * 60_000;
   const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(EVALS, 'tools', 'run-in-job.ps1'),
-    '-Command', 'jcode', '-ArgsB64', args, '-TimeoutMs', String(timeoutMs), ...(fsContain ? ['-WritableRoot', ws] : [])], {
+    '-Command', 'jcode', '-ArgsB64', args, '-TimeoutMs', String(timeoutMs), ...containArgs], {
     cwd: ws, input: '\n', encoding: 'utf8', timeout: timeoutMs + 120_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true,
   });
   const contained = r.status === 0 && !r.error;
   const containDetail = contained ? '' : `agent process tree not proven dead (run-in-job exit=${r.status ?? 'none'}${r.error ? `, ${r.error.message}` : ''})`;
-  return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout ?? ''}\n${r.stderr ?? ''}${r.error ? `\n[runner] ${r.error.message}` : ''}`, contained, containDetail };
+  return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout ?? ''}\n${r.stderr ?? ''}${r.error ? `\n[runner] ${r.error.message}` : ''}`, contained, containDetail, home };
 }
 
 async function grade(task: Task, ws: string) {
@@ -284,14 +398,22 @@ const runId = `${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}_${
 const root = path.join(os.tmpdir(), 'agent-evals', runId);
 const outDir = path.join(EVALS, 'results', runId);
 fs.mkdirSync(outDir, { recursive: true });
+// Stage node + the relay script once per run (never per task): the contained agent must be able to run
+// node, and its own install directory has no AppContainer ACE.
+const toolsRoot = fsContain ? stageTools(root) : '';
 
-console.log(`Run ${runId}: ${selected.length} task(s), agent=${agent}${agent === 'none' ? '' : ` ${provider}/${model}`}, baseline=${baseline} (${baselineSha.slice(0, 10)})${fsContain ? ', fs-contain=on' : ''}\n`);
-fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\n`);
+console.log(`Run ${runId}: ${selected.length} task(s), agent=${agent}${agent === 'none' ? '' : ` ${provider}/${model}`}, baseline=${baseline} (${baselineSha.slice(0, 10)})`);
+console.log(fsContain
+  ? `Containment: ON — AppContainer + sandbox ACL + agent home + pipe broker, upstream fixed to ${modelUpstream}, tools staged at ${toolsRoot}`
+  : agent === 'jcode'
+    ? 'Containment: *** OFF (--no-contain-unsafe) — the agent runs under the ordinary user token with no AppContainer and no broker. Results from this run are NOT contained evidence. ***'
+    : 'Containment: n/a (no external agent process)');
+fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\ncontainment: ${fsContain ? `appcontainer+acl+broker upstream=${modelUpstream} tools=${toolsRoot}` : 'OFF (--no-contain-unsafe)'}\n`);
 const results: any[] = [];
 for (const task of selected) {
   process.stdout.write(`${task.id} ${task.title.padEnd(42)} `);
   const ws = prepare(task, root);
-  const run = runAgent(task, ws);
+  const run = runAgent(task, ws, toolsRoot);
   // Dependency integrity before grading: never grade against the agent's node_modules. If the agent's
   // process tree was not proven dead, a survivor could still change the sandbox: skip the check and grading.
   const envStatus: { env: string; envDetail: string } = run.contained ? checkAndRestoreEnv(ws) : { env: 'UNSAFE_PROCESS_TREE', envDetail: run.containDetail };
