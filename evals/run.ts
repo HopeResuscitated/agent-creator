@@ -297,8 +297,11 @@ persist_memory_injections = false
 default_model = "${model}"
 default_provider = "evalbroker"
 cross_provider_failover = "off"
-max_retries = 1
-stream_idle_timeout_secs = 120
+# Same budget as the uncontained baseline's ~/.jcode/config.toml. jcode also uses this value as the
+# time-to-first-header limit, and CPU prefill of a 5-9k-token prompt can exceed 120 s. An aborted request
+# keeps running in Ollama, so a short limit cascades into every later task's first request.
+max_retries = 8
+stream_idle_timeout_secs = 900
 
 [providers.evalbroker]
 type = "open-ai-compatible"
