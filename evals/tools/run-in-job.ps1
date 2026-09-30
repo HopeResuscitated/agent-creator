@@ -452,6 +452,15 @@ function Restore-Sandbox {
             # nothing the agent does even looks like it is addressing the user's real profile.
             $env:USERPROFILE = $JcodeHome; $env:HOME = $JcodeHome
             $env:APPDATA = Join-Path $JcodeHome 'appdata'; $env:LOCALAPPDATA = Join-Path $JcodeHome 'localappdata'
+            # Windows replaces TEMP/TMP for every AppContainer process with %LOCALAPPDATA%\Packages\<name>\AC\Temp,
+            # resolved against the LOCALAPPDATA above. Nothing creates it there, so os.tmpdir() pointed at a
+            # missing directory and every mkdtemp (test fixtures, npm, tsc) failed with ENOENT. Pre-create it from
+            # the trusted side, inside the already-granted agent home: no new grant, nothing outside the home.
+            if ($containerName) {
+              $acTemp = Join-Path $env:LOCALAPPDATA "Packages\$containerName\AC\Temp"
+              if (-not (Test-Path -LiteralPath $acTemp)) { $null = New-Item -ItemType Directory -Force -Path $acTemp }
+              Note "appcontainer temp pre-created inside agent home: $acTemp"
+            }
             Note "agent home env: JCODE_HOME=$($env:JCODE_HOME) JCODE_RUNTIME_DIR=$($env:JCODE_RUNTIME_DIR) TEMP=$($env:TEMP) USERPROFILE=$($env:USERPROFILE)"
           }
       if ($ToolsRoot) {

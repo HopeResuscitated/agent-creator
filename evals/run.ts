@@ -255,16 +255,52 @@ function prepare(task: Task, root: string): string {
 }
 
 /**
- * Per-run tool staging: node itself plus the in-container relay script, in a directory the contained agent
- * may read and execute but never write. Node is COPIED rather than granted in place, because the user's
- * node install carries no AppContainer ACE and granting one would reach outside the sandbox.
+ * Per-run tool staging: node itself, npm/npx, and the in-container relay script, in a directory the contained
+ * agent may read and execute but never write. Everything is COPIED rather than granted in place, because the
+ * user's node install carries no AppContainer ACE and granting one would reach outside the sandbox.
+ *
+ * node.exe gets one byte-level fix. libuv <= 1.52.x names the pipes it creates for a child's captured stdio
+ * (and for fork IPC) "\\?\pipe\uv\<n>-<pid>". An AppContainer may only create pipes under its own
+ * "\\?\pipe\LOCAL\" namespace, so CreateNamedPipe fails with ERROR_ACCESS_DENIED, which libuv reads as a name
+ * collision and retries forever: every spawn with piped stdio (node --test, npm run, npx, tsx, tsc via npx)
+ * spins at 100% CPU and never returns. Upstream fix: libuv 2cadaa401 (#5181, first released in 1.53.0),
+ * not yet in any node release. The staged copy gets the same-length format string "\\?\pipe\LOCAL\<n>" (the
+ * pid suffix is dropped; uniqueness still comes from libuv's random value plus its collision retry). This changes
+ * only which namespace node's OWN private pipes live in. The container could already create pipes there; it
+ * grants nothing new. Fails closed: exactly one occurrence, or staging throws and the run does not start.
  */
-function stageTools(root: string): string {
+const LIBUV_PIPE_FMT_OLD = Buffer.from('\\\\?\\pipe\\uv\\%llu-%lu\0', 'latin1');
+const LIBUV_PIPE_FMT_NEW = (() => { const n = Buffer.from('\\\\?\\pipe\\LOCAL\\%llu\0', 'latin1'); return Buffer.concat([n, Buffer.alloc(LIBUV_PIPE_FMT_OLD.length - n.length)]); })();
+function stageNode(dest: string): string {
+  const [maj, min] = process.versions.uv.split('.').map(Number);
+  const bin = fs.readFileSync(process.execPath);
+  if (maj > 1 || (maj === 1 && min >= 53)) { fs.writeFileSync(dest, bin); return `node ${process.version} (libuv ${process.versions.uv}, AppContainer pipe fix upstream; copied unmodified)`; }
+  const hits: number[] = [];
+  for (let i = bin.indexOf(LIBUV_PIPE_FMT_OLD); i >= 0; i = bin.indexOf(LIBUV_PIPE_FMT_OLD, i + 1)) hits.push(i);
+  if (hits.length !== 1 || LIBUV_PIPE_FMT_NEW.length !== LIBUV_PIPE_FMT_OLD.length) {
+    throw new Error(`cannot stage node for the container: libuv ${process.versions.uv} pipe-name format found ${hits.length} time(s) (expected 1), replacement ${LIBUV_PIPE_FMT_NEW.length}/${LIBUV_PIPE_FMT_OLD.length} bytes`);
+  }
+  LIBUV_PIPE_FMT_NEW.copy(bin, hits[0]);
+  fs.writeFileSync(dest, bin);
+  return `node ${process.version} (libuv ${process.versions.uv}, pipe namespace patched to LOCAL at offset ${hits[0]})`;
+}
+function stageTools(root: string): { dir: string; detail: string } {
   const dir = path.join(root, '_agent-tools');
   fs.mkdirSync(dir, { recursive: true });
-  fs.copyFileSync(process.execPath, path.join(dir, 'node.exe'));
+  const nodeDetail = stageNode(path.join(dir, 'node.exe'));
   fs.copyFileSync(path.join(EVALS, 'tools', 'model-relay.mjs'), path.join(dir, 'model-relay.mjs'));
-  return dir;
+  // npm/npx: the shims and npm's own package from the SAME node install, so npm runs on the patched node.
+  // No global prefix, no cache, no credentials are copied; the container has no network, so npm can only run
+  // package scripts and local bins (installs fail with a network error).
+  const nodeDir = path.dirname(process.execPath);
+  const npmPkg = path.join(nodeDir, 'node_modules', 'npm');
+  let npmDetail = 'npm: not found next to node, not staged';
+  if (fs.existsSync(npmPkg)) {
+    for (const f of ['npm.cmd', 'npx.cmd']) fs.copyFileSync(path.join(nodeDir, f), path.join(dir, f));
+    fs.cpSync(npmPkg, path.join(dir, 'node_modules', 'npm'), { recursive: true });
+    npmDetail = `npm ${JSON.parse(fs.readFileSync(path.join(npmPkg, 'package.json'), 'utf8')).version} (npm.cmd, npx.cmd)`;
+  }
+  return { dir, detail: `${nodeDetail}; ${npmDetail}` };
 }
 
 /**
@@ -346,7 +382,7 @@ function runAgent(task: Task, ws: string, toolsRoot: string): { seconds: number;
     const r = spawnSync('node', [path.join(EVALS, 'reference', 'solve.ts'), task.id, ws], { encoding: 'utf8' });
     return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout}${r.stderr}`, contained: true, containDetail: '', home };
   }
-  const prompt = `${task.prompt}\n\nWork only inside the current folder. Verify your work by actually running it before you finish.`;
+  const prompt = `${task.prompt}\n\nWork only inside the current folder. Verify your work by actually running it before you finish.\nShell notes (Windows cmd): list files with the ls tool rather than \`dir\`, and use paths relative to the current folder rather than \`cd\` to an absolute path; both are equivalent here and the relative forms are the ones that work.`;
   // The agent runs inside a Windows Job Object (tools/run-in-job.ps1). The wrapper enforces the timeout,
   // then kills every process the agent started (children, grandchildren, orphans) and exits 0 only when the
   // job is proven empty. The spawnSync timeout is a backstop: if it fires, the job handle closes
@@ -379,6 +415,13 @@ async function grade(task: Task, ws: string) {
 }
 
 // ---- single-task modes (for Hermes / Copilot / manual runs) ----
+// --stage-tools-only <dir>: stage the contained tools root (patched node, npm/npx, relay) into <dir>/_agent-tools
+// and exit. Used by evals/tools/contained-child-test.mjs so the regression test exercises the exact staging code.
+if (flag('stage-tools-only')) {
+  const s = stageTools(path.resolve(flag('stage-tools-only')!));
+  console.log(`staged ${s.dir}\n${s.detail}`);
+  process.exit(0);
+}
 if (flag('prepare')) {
   const task = tasks.find((t) => t.id === flag('prepare'))!;
   const ws = prepare(task, path.join(os.tmpdir(), 'agent-evals', 'manual'));
@@ -403,15 +446,16 @@ const outDir = path.join(EVALS, 'results', runId);
 fs.mkdirSync(outDir, { recursive: true });
 // Stage node + the relay script once per run (never per task): the contained agent must be able to run
 // node, and its own install directory has no AppContainer ACE.
-const toolsRoot = fsContain ? stageTools(root) : '';
+const toolsStage = fsContain ? stageTools(root) : { dir: '', detail: '' };
+const toolsRoot = toolsStage.dir;
 
 console.log(`Run ${runId}: ${selected.length} task(s), agent=${agent}${agent === 'none' ? '' : ` ${provider}/${model}`}, baseline=${baseline} (${baselineSha.slice(0, 10)})`);
 console.log(fsContain
-  ? `Containment: ON — AppContainer + sandbox ACL + agent home + pipe broker, upstream fixed to ${modelUpstream}, tools staged at ${toolsRoot}`
+  ? `Containment: ON — AppContainer + sandbox ACL + agent home + pipe broker, upstream fixed to ${modelUpstream}, tools staged at ${toolsRoot}\nStaged tools: ${toolsStage.detail}`
   : agent === 'jcode'
     ? 'Containment: *** OFF (--no-contain-unsafe) — the agent runs under the ordinary user token with no AppContainer and no broker. Results from this run are NOT contained evidence. ***'
     : 'Containment: n/a (no external agent process)');
-fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\ncontainment: ${fsContain ? `appcontainer+acl+broker upstream=${modelUpstream} tools=${toolsRoot}` : 'OFF (--no-contain-unsafe)'}\n`);
+fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\ncontainment: ${fsContain ? `appcontainer+acl+broker upstream=${modelUpstream} tools=${toolsRoot} staged=${toolsStage.detail}` : 'OFF (--no-contain-unsafe)'}\n`);
 const results: any[] = [];
 for (const task of selected) {
   process.stdout.write(`${task.id} ${task.title.padEnd(42)} `);
