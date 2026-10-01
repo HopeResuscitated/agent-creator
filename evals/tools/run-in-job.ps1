@@ -29,6 +29,14 @@
 #                  only through the broker; a non-loopback upstream is refused before the pipe exists.
 #   -RelayPort     TCP port of the in-container relay (default 18437).
 #   -ModelPipe     optional pipe name; derived from -WritableRoot when empty.
+#   -UncontainedControl  CONTROL ONLY (evals/run.ts --no-contain-unsafe): apply the SAME agent home, profile
+#                  variables, tools-root PATH, NODE_OPTIONS and environment allow-list as a contained run, but
+#                  with no AppContainer, no ACL grants and no broker (the agent dials its endpoint directly).
+#                  Makes containment the only experimental variable. Refuses -WritableRoot and -ModelUpstream.
+#
+# Before launching, the wrapper prints the agent's effective environment once as
+#   [run-in-job ...] effective-env-b64=<base64 UTF-8 JSON {name: value}>
+# so the runner can fingerprint it. Windows itself further overrides TEMP/TMP inside an AppContainer.
 
 #
 # How the tree is contained: this script puts ITSELF into a new job, with KILL_ON_JOB_CLOSE and no
@@ -41,7 +49,7 @@
 # network access) and inherits this script's stdio, so run.ts still sees the agent's output. The sandbox
 # DACL is read before the grant and written back afterwards, and the container profile is deleted on
 # every exit path.
-param([Parameter(Mandatory = $true)][string]$Command, [string]$ArgsB64 = '', [int]$TimeoutMs = 900000, [string]$WritableRoot = '', [string]$AppContainerName = '', [string]$JcodeHome = '', [string]$ToolsRoot = '', [string]$ModelUpstream = '', [string]$ModelPipe = '', [int]$RelayPort = 18437)
+param([Parameter(Mandatory = $true)][string]$Command, [string]$ArgsB64 = '', [int]$TimeoutMs = 900000, [string]$WritableRoot = '', [string]$AppContainerName = '', [string]$JcodeHome = '', [string]$ToolsRoot = '', [string]$ModelUpstream = '', [string]$ModelPipe = '', [int]$RelayPort = 18437, [switch]$UncontainedControl)
 $ErrorActionPreference = 'Stop'
 function Note($m) { [Console]::Error.WriteLine("[run-in-job $([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())] $m") }
 # ABS-2: write a DACL back from its exact SDDL form (access section only), so a grant can be undone precisely.
@@ -291,6 +299,7 @@ public static class ModelBroker {
 } catch { Note "setup failed, agent not started: $($_.Exception.Message)"; exit 4 }
 
 $useAC = $WritableRoot -ne ''
+if ($UncontainedControl -and ($useAC -or $ModelUpstream)) { Note "-UncontainedControl cannot be combined with -WritableRoot or -ModelUpstream, agent not started"; exit 4 }
 $aclBefore = ''
 $containerName = ''
 if ($useAC) {
@@ -427,7 +436,7 @@ function Restore-Sandbox {
 
   if ($JcodeHome -or $ToolsRoot -or $ModelUpstream) {
     try {
-      if (-not $useAC) { throw "agent home / tools root / model access require -WritableRoot (contained mode)" }
+      if (-not $useAC -and -not $UncontainedControl) { throw "agent home / tools root / model access require -WritableRoot (contained mode)" }
       if ($JcodeHome) {
             $JcodeHome = [IO.Path]::GetFullPath($JcodeHome)
             # Pre-create the runtime tree from the TRUSTED side: jcode rewrites the DACL of any directory it
@@ -436,7 +445,8 @@ function Restore-Sandbox {
               $p = Join-Path $JcodeHome $d
               if (-not (Test-Path -LiteralPath $p)) { $null = New-Item -ItemType Directory -Force -Path $p }
             }
-            if (Within $JcodeHome $WritableRoot) { Note "agent home is inside the sandbox root (covered by the sandbox grant): $JcodeHome" }
+            if (-not $useAC) { Note "control: agent home used without any grant (no AppContainer): $JcodeHome" }
+            elseif (Within $JcodeHome $WritableRoot) { Note "agent home is inside the sandbox root (covered by the sandbox grant): $JcodeHome" }
             else { $script:aclHomeBefore = Grant-ContainerAcl $JcodeHome 'M' 'agent home'; $script:homeGranted = $true }
             $env:JCODE_HOME = $JcodeHome
             $env:JCODE_RUNTIME_DIR = Join-Path $JcodeHome 'runtime'
@@ -466,7 +476,8 @@ function Restore-Sandbox {
       if ($ToolsRoot) {
         $ToolsRoot = [IO.Path]::GetFullPath($ToolsRoot)
         if (-not (Test-Path -LiteralPath $ToolsRoot)) { throw "tools root does not exist: $ToolsRoot" }
-        if (Within $ToolsRoot $WritableRoot) { Note "tools root is inside the sandbox root: $ToolsRoot" }
+        if (-not $useAC) { Note "control: tools root used without any grant (no AppContainer): $ToolsRoot" }
+        elseif (Within $ToolsRoot $WritableRoot) { Note "tools root is inside the sandbox root: $ToolsRoot" }
         else { $script:aclToolsBefore = Grant-ContainerAcl $ToolsRoot 'RX' 'tools root'; $script:toolsGranted = $true }
         $env:PATH = "$ToolsRoot;$env:PATH"
         Note "agent PATH prepended with tools root: $ToolsRoot"
@@ -515,7 +526,7 @@ function Restore-Sandbox {
 
 # Sanitized child environment (fallback path: a contained run with no model upstream or agent home still
 # gets one, so the agent can never inherit the caller's environment). See Remove-InheritedEnvironment.
-if ($useAC) {
+if ($useAC -or $UncontainedControl) {
   try { Remove-InheritedEnvironment }
   catch {
     Note "environment sanitization failed, agent not started: $($_.Exception.Message)"
@@ -524,6 +535,9 @@ if ($useAC) {
     Restore-Sandbox
     exit 4
   }
+  $effEnv = [ordered]@{}
+  foreach ($k in (@([Environment]::GetEnvironmentVariables('Process').Keys) | Sort-Object)) { $effEnv[[string]$k] = [Environment]::GetEnvironmentVariable([string]$k, 'Process') }
+  Note "effective-env-b64=$([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($effEnv | ConvertTo-Json -Compress))))"
 }
 
 $agentExit = 'not-started'
