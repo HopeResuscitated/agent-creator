@@ -18,9 +18,10 @@
 #                  a PROTECTED DACL naming only the user SID — which would lock the container out of its own
 #                  runtime directory.
 #   -ToolsRoot     optional directory the agent must be able to run tools from (the runner stages node.exe
-#                  and the relay script there). It is granted RX (never write) to the container and prepended
-#                  to the agent's PATH, because an AppContainer cannot execute a path-qualified image — only
-#                  a PATH-resolved or cwd-relative one. Granted separately and restored like the others.
+#                  and the relay script there). It is granted RX (never write) to the container and is the
+#                  first entry of the agent's PATH, because an AppContainer cannot execute a path-qualified
+#                  image — only a PATH-resolved or cwd-relative one. Granted separately and restored like the
+#                  others. The rest of the agent's PATH is a fixed system list, never the caller's PATH.
 #   -ModelUpstream  host:port of the ONE loopback model endpoint this run is allowed to use. When set, a
 #                  broker is created on the trusted side (named pipe, DACL = this user + exactly this run's
 #                  AppContainer SID, Low integrity label) whose upstream is fixed to this address, and a
@@ -30,7 +31,7 @@
 #   -RelayPort     TCP port of the in-container relay (default 18437).
 #   -ModelPipe     optional pipe name; derived from -WritableRoot when empty.
 #   -UncontainedControl  CONTROL ONLY (evals/run.ts --no-contain-unsafe): apply the SAME agent home, profile
-#                  variables, tools-root PATH, NODE_OPTIONS and environment allow-list as a contained run, but
+#                  variables, fixed PATH, NODE_OPTIONS and deterministic environment as a contained run, but
 #                  with no AppContainer, no ACL grants and no broker (the agent dials its endpoint directly).
 #                  Makes containment the only experimental variable. Refuses -WritableRoot and -ModelUpstream.
 #
@@ -326,6 +327,8 @@ public static class ModelBroker {
   [EvalJob]::Enter()
 } catch { Note "setup failed, agent not started: $($_.Exception.Message)"; exit 4 }
 
+# Absolute, so ACL grants/restores keep working after the wrapper has replaced its own environment (PATH).
+$script:icacls = Join-Path ([Environment]::SystemDirectory) 'icacls.exe'
 $useAC = $WritableRoot -ne ''
 if ($UncontainedControl -and ($useAC -or $ModelUpstream)) { Note "-UncontainedControl cannot be combined with -WritableRoot or -ModelUpstream, agent not started"; exit 4 }
 $aclBefore = ''
@@ -341,7 +344,7 @@ if ($useAC) {
     Note "appcontainer name=$containerName sid=$sidString"
     if (-not (Test-Path -LiteralPath $WritableRoot)) { throw "writable root does not exist: $WritableRoot" }
     $aclBefore = (Get-Acl -LiteralPath $WritableRoot).Sddl
-    & icacls $WritableRoot /grant "*${sidString}:(OI)(CI)M" | Out-Null
+    & $script:icacls $WritableRoot /grant "*${sidString}:(OI)(CI)M" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "icacls grant failed (exit $LASTEXITCODE)" }
     $aclAfter = (Get-Acl -LiteralPath $WritableRoot).Sddl
     if ($aclAfter -notmatch [regex]::Escape($sidString)) { throw "grant not present in the DACL after icacls" }
@@ -359,7 +362,7 @@ function Restore-Sandbox {
   if (-not $useAC) { return }
   try {
     $sidString = [EvalJob]::ContainerSidString()
-    & icacls $WritableRoot /remove:g "*$sidString" | Out-Null
+    & $script:icacls $WritableRoot /remove:g "*$sidString" | Out-Null
     $after = (Get-Acl -LiteralPath $WritableRoot).Sddl
     if ($after -ne $aclBefore) {
       # icacls normalizes the DACL (sets SE_DACL_AUTO_INHERITED); write the recorded SDDL back verbatim.
@@ -404,7 +407,7 @@ function Restore-Sandbox {
       if (-not $g.granted) { continue }
       try {
         $sidString = [EvalJob]::ContainerSidString()
-        & icacls $g.path /remove:g "*$sidString" | Out-Null
+        & $script:icacls $g.path /remove:g "*$sidString" | Out-Null
         $after = (Get-Acl -LiteralPath $g.path).Sddl
         if ($after -ne $g.before) { Restore-Sddl $g.path $g.before; $after = (Get-Acl -LiteralPath $g.path).Sddl }
         Note "$($g.what) acl restore: identical-to-original=$($after -eq $g.before) aces-identical=$((Aces $g.before) -eq (Aces $after))"
@@ -416,7 +419,7 @@ function Restore-Sandbox {
   function Grant-ContainerAcl($path, $rights, $what) {
     $sidString = [EvalJob]::ContainerSidString()
     $before = (Get-Acl -LiteralPath $path).Sddl
-    & icacls $path /grant "*${sidString}:(OI)(CI)$rights" | Out-Null
+    & $script:icacls $path /grant "*${sidString}:(OI)(CI)$rights" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "icacls grant failed on $what (exit $LASTEXITCODE)" }
     if ((Get-Acl -LiteralPath $path).Sddl -notmatch [regex]::Escape($sidString)) { throw "grant not present on $what DACL after icacls" }
     Note "$($what) acl: granted $rights to $sidString on $path"
@@ -429,37 +432,61 @@ function Restore-Sandbox {
     return ($c -eq $p -or $c.StartsWith($p + '\'))
   }
 
-  # Sanitized child environment. CreateProcess on this host rejects a custom block marshalled from a managed
-  # string (ERROR_ENVVAR_NOT_FOUND, 203), so instead the wrapper REDUCES ITS OWN process environment to this
-  # allow-list before starting anything inside the container, and the child inherits exactly that. No API key,
-  # token, proxy or other secret from the caller's environment can reach the agent this way.
-  $envKeys = @('PATH', 'SystemRoot', 'windir', 'SystemDrive', 'COMSPEC', 'PATHEXT', 'OS',
-      'PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432', 'NUMBER_OF_PROCESSORS', 'ProgramFiles', 'ProgramFiles(x86)', 'CommonProgramFiles',
-      'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE', 'HOME', 'APPDATA', 'LOCALAPPDATA',
-      'JCODE_HOME', 'JCODE_RUNTIME_DIR', 'JCODE_NO_TELEMETRY', 'DO_NOT_TRACK', 'LANG', 'LC_ALL', 'NODE_OPTIONS')
+  # Deterministic child environment. CreateProcess on this host rejects a custom block marshalled from a managed
+  # string (ERROR_ENVVAR_NOT_FOUND, 203), so instead the wrapper REPLACES ITS OWN process environment with a
+  # fixed set before starting anything inside the container, and the child inherits exactly that. Nothing is
+  # taken from the launching shell: no API key, token or proxy can reach the agent, and the agent's inputs
+  # (names, casing and values) are the same whichever shell, terminal or tool started the run.
+  #   system values  derived from the OS (folder APIs, machine-scope registry), never from the caller's env
+  #   PATH           fixed list: tools root (node, npm, npx, relay), then System32, Windows, Wbem, PowerShell
+  #                  (cmd builtins, where/findstr/timeout, powershell). Nothing else, in particular no
+  #                  user-profile, Git, Python or package-manager directories from the launching PATH.
+  #   wrapper values the agent-home variables this script sets (JCODE_*, TEMP/TMP, profile dirs, NODE_OPTIONS)
+  #   dropped        everything else, including LANG/LC_ALL/TMPDIR that some shells (git-bash, Hermes) export
+  $wrapperKeys = @('JCODE_HOME', 'JCODE_RUNTIME_DIR', 'JCODE_NO_TELEMETRY', 'DO_NOT_TRACK', 'NODE_OPTIONS',
+      'TEMP', 'TMP', 'USERPROFILE', 'HOME', 'APPDATA', 'LOCALAPPDATA')
+  function Get-FixedSystemEnvironment {
+    $win = [Environment]::GetFolderPath('Windows'); $sys = [Environment]::SystemDirectory
+    $machine = { param($n, $d) $v = [Environment]::GetEnvironmentVariable($n, 'Machine'); if ($v) { $v } else { $d } }
+    $pathDirs = @()
+    if ($script:agentToolsRoot) { $pathDirs += $script:agentToolsRoot }
+    $pathDirs += @($sys, $win, (Join-Path $sys 'Wbem'), (Join-Path $sys 'WindowsPowerShell\v1.0'))
+    return [ordered]@{
+      'PATH' = ($pathDirs -join ';'); 'SystemRoot' = $win; 'windir' = $win; 'SystemDrive' = $win.Substring(0, 2)
+      'ComSpec' = (Join-Path $sys 'cmd.exe'); 'PATHEXT' = (& $machine 'PATHEXT' '.COM;.EXE;.BAT;.CMD'); 'OS' = 'Windows_NT'
+      'PROCESSOR_ARCHITECTURE' = (& $machine 'PROCESSOR_ARCHITECTURE' 'AMD64'); 'NUMBER_OF_PROCESSORS' = "$([Environment]::ProcessorCount)"
+      'ProgramFiles' = [Environment]::GetFolderPath('ProgramFiles'); 'ProgramFiles(x86)' = [Environment]::GetFolderPath('ProgramFilesX86')
+      'CommonProgramFiles' = [Environment]::GetFolderPath('CommonProgramFiles')
+    }
+  }
   $script:envSanitized = $false
   function Remove-InheritedEnvironment {
     if ($script:envSanitized) { return }
-    $keep = @{}
-    foreach ($k in $script:envKeys) {
+    $want = Get-FixedSystemEnvironment
+    foreach ($k in $script:wrapperKeys) {
       $v = [Environment]::GetEnvironmentVariable($k, 'Process')
-      if ($null -ne $v) { $keep[$k] = $v }
+      # Without -JcodeHome the wrapper sets no profile/temp values; then (only then) the caller's are kept.
+      if ($null -ne $v) { $want[$k] = $v }
     }
-    $dropped = @()
-      foreach ($n in @([Environment]::GetEnvironmentVariables('Process').Keys)) {
-        if (-not $keep.ContainsKey($n)) {
-          $dropped += $n
-          try { [Environment]::SetEnvironmentVariable($n, $null, 'Process') } catch { Note "could not drop inherited variable $n : $($_.Exception.Message)" }
-        }
-      }
-      # Fail closed: every variable we tried to drop must actually be gone, or the agent would inherit it.
-      $survivors = @($dropped | Where-Object { $null -ne [Environment]::GetEnvironmentVariable($_, 'Process') })
-      if ($survivors.Count) { throw "inherited environment variables survived sanitization: $($survivors -join ',')" }
-    foreach ($k in $keep.Keys) { [Environment]::SetEnvironmentVariable($k, $keep[$k], 'Process') }
-    $left = @([Environment]::GetEnvironmentVariables('Process').Keys)
-    foreach ($k in $script:envKeys) { if (-not ($left -contains $k) -and $keep.ContainsKey($k)) { throw "allow-listed variable $k did not survive sanitization" } }
+    $inherited = @([Environment]::GetEnvironmentVariables('Process').Keys | ForEach-Object { [string]$_ })
+    # Remove EVERY variable first, then set the fixed ones: this also normalizes name casing (Path vs PATH),
+    # which otherwise follows whatever the launching process used.
+    foreach ($n in $inherited) {
+      try { [Environment]::SetEnvironmentVariable($n, $null, 'Process') } catch { Note "could not drop inherited variable $n : $($_.Exception.Message)" }
+    }
+    # Fail closed: every variable must actually be gone, or the agent would inherit it. Windows keeps some
+    # system values (NUMBER_OF_PROCESSORS) whatever the process does; those are overwritten with the fixed
+    # value below, so only a survivor that is NOT part of the fixed set is a failure.
+    $survivors = @($inherited | Where-Object { $null -ne [Environment]::GetEnvironmentVariable($_, 'Process') -and -not $want.Contains($_) })
+    if ($survivors.Count) { throw "inherited environment variables survived sanitization: $($survivors -join ',')" }
+    foreach ($k in $want.Keys) { [Environment]::SetEnvironmentVariable($k, $want[$k], 'Process') }
+    $left = @([Environment]::GetEnvironmentVariables('Process').Keys | ForEach-Object { [string]$_ })
+    $extra = @($left | Where-Object { -not $want.Contains($_) })
+    if ($extra.Count) { throw "unexpected variables in the agent environment: $($extra -join ',')" }
+    foreach ($k in $want.Keys) { if ([Environment]::GetEnvironmentVariable($k, 'Process') -ne $want[$k]) { throw "fixed variable $k did not survive sanitization" } }
+    $dropped = @($inherited | Where-Object { -not $want.Contains($_) })
     $script:envSanitized = $true
-    Note "agent environment: process environment reduced to $($left.Count) allow-listed variables (dropped $($dropped.Count) inherited: $(($dropped | Select-Object -First 12) -join ','))"
+    Note "agent environment: replaced with $($left.Count) fixed variables, PATH=$($want['PATH']) (dropped $($dropped.Count) inherited: $(($dropped | Select-Object -First 12) -join ','))"
   }
 
   if ($JcodeHome -or $ToolsRoot -or $ModelUpstream) {
@@ -507,8 +534,9 @@ function Restore-Sandbox {
         if (-not $useAC) { Note "control: tools root used without any grant (no AppContainer): $ToolsRoot" }
         elseif (Within $ToolsRoot $WritableRoot) { Note "tools root is inside the sandbox root: $ToolsRoot" }
         else { $script:aclToolsBefore = Grant-ContainerAcl $ToolsRoot 'RX' 'tools root'; $script:toolsGranted = $true }
-        $env:PATH = "$ToolsRoot;$env:PATH"
-        Note "agent PATH prepended with tools root: $ToolsRoot"
+        # The agent's PATH is built from a fixed list with the tools root first (Remove-InheritedEnvironment).
+        $script:agentToolsRoot = $ToolsRoot
+        Note "agent PATH will start with the tools root: $ToolsRoot"
       }
       if ($ModelUpstream) {
             Remove-InheritedEnvironment

@@ -82,7 +82,7 @@ for (const r of run) {
   const logs = fs.existsSync(path.join(home, 'logs')) ? fs.readdirSync(path.join(home, 'logs')).map((f) => readText(path.join(home, 'logs', f))).join('\n') : '';
   const ex = /agent exit=(\S+) timedOut=(\S+) killed=(\S+) members-left=(\S+)/.exec(notes.join('\n'));
   const acl = ['agent home', 'tools root', 'sandbox'].map((w, i) => { const m = new RegExp(`${w} acl restore: identical-to-original=\\S+ aces-identical=(\\S+)`).exec(notes.join('\n')); return m ? `${['agent', 'tools', 'sandbox'][i]}:${m[1]}` : null; }).filter(Boolean).join(',');
-  const envM = /reduced to (\d+) allow-listed variables \(dropped (\d+)/.exec(notes.join('\n'));
+  const envM = /(?:reduced to|replaced with) (\d+) (?:allow-listed|fixed) variables.*?\(dropped (\d+)/.exec(notes.join('\n'));
   const brokerLog = readText(path.join(home, 'broker.log'));
   const conns = /model broker stopped after (\d+) connection/.exec(notes.join('\n'))?.[1] ?? '?';
   const upfail = (brokerLog.match(/upstream connect failed/g) ?? []).length;

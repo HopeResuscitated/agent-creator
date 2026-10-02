@@ -40,5 +40,5 @@ foreach ($mode in 'contained', 'control') {
   foreach ($f in 'broker.log', 'relay.log') { if (Test-Path (Join-Path $h $f)) { New-Item -ItemType Directory -Force $od | Out-Null; Copy-Item (Join-Path $h $f) $od } }
   ($o | ForEach-Object { "$_" }) | Set-Content -Encoding utf8 (Join-Path $Out "wrapper-$mode.txt")
   "=== $mode sandbox=$sb port=$port"
-  ($o | ForEach-Object { "$_" }) | Where-Object { $_ -match '^PROBE|^  tail|agent exit|tree proven dead|acl restore|profile deleted|reduced to|model broker|in-container relay' } | ForEach-Object { "  $_" }
+  ($o | ForEach-Object { "$_" }) | Where-Object { $_ -match '^PROBE|^  tail|agent exit|tree proven dead|acl restore|profile deleted|reduced to|replaced with|model broker|in-container relay' } | ForEach-Object { "  $_" }
 }
