@@ -1,0 +1,2 @@
+# Shell scripts run under bash (git-bash/MSYS); CRLF breaks them (`$'': command not found`).
+*.sh text eol=lf
