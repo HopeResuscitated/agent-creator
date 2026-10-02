@@ -21,13 +21,16 @@ const note = (m) => { const l = `[model-relay ${Date.now()}] ${m}`; try { consol
 let n = 0;
 const server = net.createServer({ allowHalfOpen: true }, (conn) => {
   const id = ++n;
-  const up = net.connect({ path: pipePath });
+  const up = net.connect({ path: pipePath, allowHalfOpen: true });
   up.on('connect', () => note(`conn#${id} tcp -> pipe`));
+  // Let pipe() propagate each side's EOF as end() on the other, so buffered bytes are flushed and a client
+  // half-close still receives the full response. Tear down only on error or once a side is fully closed.
   up.on('error', (e) => { note(`conn#${id} pipe error: ${e.message}`); conn.destroy(); });
-  conn.on('error', (e) => note(`conn#${id} tcp error: ${e.message}`));
+  conn.on('error', (e) => { note(`conn#${id} tcp error: ${e.message}`); up.destroy(); });
   conn.pipe(up); up.pipe(conn);
-  const done = () => { conn.destroy(); up.destroy(); };
-  conn.on('end', done); up.on('end', done);
+  // Client gone: nothing more can be delivered. Pipe gone: if pipe() already called conn.end(), let it flush.
+  conn.on('close', () => up.destroy());
+  up.on('close', () => { if (!conn.writableEnded) conn.destroy(); });
 });
 server.on('error', (e) => { note(`listen failed: ${e.message}`); process.exit(3); });
 // 127.0.0.1 only: same-container reachability. Binding any other address would widen the surface.

@@ -67,8 +67,14 @@ if ((fsContain || controlEquivalent) && !modelUpstream) {
   console.error(`contained runs and the config-equivalent control need --model-upstream host:port for provider '${provider}' (loopback only)`);
   process.exit(2);
 }
-if (modelUpstream && !/^(127\.\d+\.\d+\.\d+|localhost):\d{1,5}$/.test(modelUpstream)) {
-  console.error(`--model-upstream must be a loopback host:port, got '${modelUpstream}'`);
+// Must match what the broker in run-in-job.ps1 accepts: a literal 127.x.x.x address (no hostnames such as
+// 'localhost', which IPAddress.Parse rejects) and a port in 1..65535.
+const upstreamOk = (u: string) => {
+  const m = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):(\d{1,5})$/.exec(u);
+  return !!m && m.slice(1, 4).every((o) => Number(o) <= 255) && Number(m[4]) >= 1 && Number(m[4]) <= 65535;
+};
+if (modelUpstream && !upstreamOk(modelUpstream)) {
+  console.error(`--model-upstream must be a literal loopback address 127.x.x.x:port (port 1-65535), got '${modelUpstream}'`);
   process.exit(2);
 }
 // Sandbox starting state = a frozen git commit, never the live working tree, so
@@ -397,16 +403,22 @@ function normalizeForFingerprint(s: string, ws: string, home: string, tools: str
   }
   return out.replace(/^base_url = ".*"$/m, 'base_url = "<ENDPOINT>"');
 }
-const jcodeBin = (() => {
+// Resolved lazily: only jcode runs need the binary path, version and hash.
+let jcodeBinMemo: string | undefined;
+function jcodeBin(): string {
+  if (jcodeBinMemo) return jcodeBinMemo;
   const explicit = flag('jcode-bin');
-  if (explicit) { if (!fs.existsSync(explicit)) { console.error(`--jcode-bin not found: ${explicit}`); process.exit(2); } return path.resolve(explicit); }
+  if (explicit) { if (!fs.existsSync(explicit)) { console.error(`--jcode-bin not found: ${explicit}`); process.exit(2); } return (jcodeBinMemo = path.resolve(explicit)); }
   const w = spawnSync('where', ['jcode'], { encoding: 'utf8', shell: true });
-  return (w.stdout || '').split(/\r?\n/).find((l) => l.trim())?.trim() ?? 'jcode';
-})();
-const jcodeIdentity = (() => {
-  const v = spawnSync(jcodeBin, ['--version'], { encoding: 'utf8', timeout: 30_000 });
-  return { path: jcodeBin, sha256: fs.existsSync(jcodeBin) ? sha256(fs.readFileSync(jcodeBin)) : 'unknown', version: `${v.stdout ?? ''}`.trim() || 'unknown' };
-})();
+  return (jcodeBinMemo = (w.stdout || '').split(/\r?\n/).find((l) => l.trim())?.trim() ?? 'jcode');
+}
+let jcodeIdentityMemo: { path: string; sha256: string; version: string } | undefined;
+function jcodeIdentity() {
+  if (jcodeIdentityMemo) return jcodeIdentityMemo;
+  const bin = jcodeBin();
+  const v = spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 30_000 });
+  return (jcodeIdentityMemo = { path: bin, sha256: fs.existsSync(bin) ? sha256(fs.readFileSync(bin)) : 'unknown', version: `${v.stdout ?? ''}`.trim() || 'unknown' });
+}
 
 /**
  * Port for the in-container relay. The relay fails closed if it cannot bind (the wrapper then exits 4 and
@@ -414,7 +426,7 @@ const jcodeIdentity = (() => {
  */
 function relayPort(): number { return 20000 + crypto.randomInt(0, 20000); }
 
-function runAgent(task: Task, ws: string, toolsRoot: string): { seconds: number; exit: number; transcript: string; contained: boolean; containDetail: string; home: string; fingerprint?: Record<string, string> } {
+function runAgent(task: Task, ws: string, toolsRoot: string): { seconds: number; exit: number; transcript: string; contained: boolean; setupFailed?: boolean; containDetail: string; home: string; fingerprint?: Record<string, string> } {
   const t0 = Date.now();
   const home = `${ws}.agent-home`;
   if (agent === 'none') return { seconds: 0, exit: 0, transcript: '', contained: true, containDetail: '', home };
@@ -450,27 +462,35 @@ function runAgent(task: Task, ws: string, toolsRoot: string): { seconds: number;
   const args = Buffer.from(JSON.stringify(agentArgs), 'utf8').toString('base64');
   const timeoutMs = task.timeoutMin * 60_000;
   const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(EVALS, 'tools', 'run-in-job.ps1'),
-    '-Command', jcodeBin, '-ArgsB64', args, '-TimeoutMs', String(timeoutMs), ...containArgs], {
+    '-Command', jcodeBin(), '-ArgsB64', args, '-TimeoutMs', String(timeoutMs), ...containArgs], {
     cwd: ws, input: '\n', encoding: 'utf8', timeout: timeoutMs + 120_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true,
   });
   const contained = r.status === 0 && !r.error;
-  const containDetail = contained ? '' : `agent process tree not proven dead (run-in-job exit=${r.status ?? 'none'}${r.error ? `, ${r.error.message}` : ''})`;
+  // run-in-job.ps1 exits 4 only from fail-closed setup, before the agent is started: nothing ran, so it is
+  // neither an unsafe process tree nor a capability failure.
+  const setupFailed = r.status === 4 && !r.error;
+  const containDetail = contained ? ''
+    : setupFailed ? 'containment/agent setup failed, agent not started (run-in-job exit=4)'
+      : `agent process tree not proven dead (run-in-job exit=${r.status ?? 'none'}${r.error ? `, ${r.error.message}` : ''})`;
   // Effective-config fingerprint: every input the agent sees, normalized for per-task paths and the endpoint.
+  // No fingerprint without the wrapper's effective-env line: an empty env would hash identically across failures.
   let fingerprint: Record<string, string> | undefined;
-  if (contain || control) {
-    const envM = /effective-env-b64=(\S+)/.exec(`${r.stderr ?? ''}`);
-    const envObj: Record<string, string> = envM ? JSON.parse(Buffer.from(envM[1], 'base64').toString('utf8')) : {};
-    const envNorm = Object.fromEntries(Object.keys(envObj).sort().map((k) => [k, normalizeForFingerprint(envObj[k] ?? '', ws, home, toolsRoot)]));
+  const envM = contain || control ? /effective-env-b64=(\S+)/.exec(`${r.stderr ?? ''}`) : null;
+  let envObj: Record<string, string> | undefined;
+  if (envM) { try { envObj = JSON.parse(Buffer.from(envM[1], 'base64').toString('utf8')); } catch { envObj = undefined; } }
+  if (envObj) {
+    const e = envObj;
+    const envNorm = Object.fromEntries(Object.keys(e).sort().map((k) => [k, normalizeForFingerprint(e[k] ?? '', ws, home, toolsRoot)]));
     const argsNorm = normalizeForFingerprint(JSON.stringify(agentArgs), ws, home, toolsRoot);
     const tomlNorm = normalizeForFingerprint(toml, ws, home, toolsRoot);
     fingerprint = {
       agent_config: sha256(tomlNorm), agent_args: sha256(argsNorm), env_names: sha256(Object.keys(envNorm).join('\n')),
-      env_values: sha256(JSON.stringify(envNorm)), jcode_sha256: jcodeIdentity.sha256, model, task_prompt: sha256(prompt),
+      env_values: sha256(JSON.stringify(envNorm)), jcode_sha256: jcodeIdentity().sha256, model, task_prompt: sha256(prompt),
       tools_root: toolsStage.detail, baseline: baselineSha,
     };
     fs.writeFileSync(`${home}.effective-config.json`, JSON.stringify({ toml: tomlNorm, args: JSON.parse(argsNorm), env: envNorm, fingerprint }, null, 2));
   }
-  return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout ?? ''}\n${r.stderr ?? ''}${r.error ? `\n[runner] ${r.error.message}` : ''}`, contained, containDetail, home, fingerprint };
+  return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout ?? ''}\n${r.stderr ?? ''}${r.error ? `\n[runner] ${r.error.message}` : ''}`, contained, setupFailed, containDetail, home, fingerprint };
 }
 
 async function grade(task: Task, ws: string) {
@@ -513,7 +533,8 @@ const toolsStage = fsContain || controlEquivalent ? stageTools(root) : { dir: ''
 const toolsRoot = toolsStage.dir;
 
 console.log(`Run ${runId}: ${selected.length} task(s), agent=${agent}${agent === 'none' ? '' : ` ${provider}/${model}`}, baseline=${baseline} (${baselineSha.slice(0, 10)})`);
-console.log(`jcode: ${jcodeIdentity.version} sha256=${jcodeIdentity.sha256.slice(0, 16)} path=${jcodeIdentity.path}`);
+const jcodeLine = agent === 'jcode' ? `${jcodeIdentity().version} sha256=${jcodeIdentity().sha256} path=${jcodeIdentity().path}` : 'n/a';
+if (agent === 'jcode') console.log(`jcode: ${jcodeIdentity().version} sha256=${jcodeIdentity().sha256.slice(0, 16)} path=${jcodeIdentity().path}`);
 console.log(fsContain
   ? `Containment: ON — AppContainer + sandbox ACL + agent home + pipe broker, upstream fixed to ${modelUpstream}, tools staged at ${toolsRoot}\nStaged tools: ${toolsStage.detail}`
   : controlEquivalent
@@ -521,7 +542,7 @@ console.log(fsContain
     : agent === 'jcode'
       ? 'Containment: *** OFF (--no-contain-unsafe --control-user-config) — the agent runs under the ordinary user token with the user\'s own jcode config. Results from this run are NOT contained evidence. ***'
       : 'Containment: n/a (no external agent process)');
-fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\njcode: ${jcodeIdentity.version} sha256=${jcodeIdentity.sha256} path=${jcodeIdentity.path}\ncontainment: ${fsContain ? `appcontainer+acl+broker upstream=${modelUpstream} tools=${toolsRoot} staged=${toolsStage.detail}` : controlEquivalent ? `OFF config-equivalent control upstream=${modelUpstream} (direct) tools=${toolsRoot} staged=${toolsStage.detail}` : 'OFF (--no-contain-unsafe --control-user-config)'}\n`);
+fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\njcode: ${jcodeLine}\ncontainment: ${fsContain ? `appcontainer+acl+broker upstream=${modelUpstream} tools=${toolsRoot} staged=${toolsStage.detail}` : controlEquivalent ? `OFF config-equivalent control upstream=${modelUpstream} (direct) tools=${toolsRoot} staged=${toolsStage.detail}` : 'OFF (--no-contain-unsafe --control-user-config)'}\n`);
 const results: any[] = [];
 for (const task of selected) {
   process.stdout.write(`${task.id} ${task.title.padEnd(42)} `);
@@ -529,8 +550,11 @@ for (const task of selected) {
   const run = runAgent(task, ws, toolsRoot);
   // Dependency integrity before grading: never grade against the agent's node_modules. If the agent's
   // process tree was not proven dead, a survivor could still change the sandbox: skip the check and grading.
-  const envStatus: { env: string; envDetail: string } = run.contained ? checkAndRestoreEnv(ws) : { env: 'UNSAFE_PROCESS_TREE', envDetail: run.containDetail };
-  const g = envStatus.env === 'ENV_RESTORE_FAILED' || envStatus.env === 'UNSAFE_PROCESS_TREE' ? { pass: false, detail: `not graded: ${envStatus.envDetail}` } : await grade(task, ws);
+  // SETUP_FAILED: the agent never started, so the task is not graded and is excluded from the score.
+  const envStatus: { env: string; envDetail: string } = run.contained ? checkAndRestoreEnv(ws)
+    : run.setupFailed ? { env: 'SETUP_FAILED', envDetail: run.containDetail }
+      : { env: 'UNSAFE_PROCESS_TREE', envDetail: run.containDetail };
+  const g = envStatus.env === 'ENV_RESTORE_FAILED' || envStatus.env === 'UNSAFE_PROCESS_TREE' || envStatus.env === 'SETUP_FAILED' ? { pass: false, detail: `not graded: ${envStatus.envDetail}` } : await grade(task, ws);
   // A contaminated environment is never counted as a PASS; the grader's verdict (graded on
   // the restored golden tree) is kept alongside as graderPass.
   const pass = g.pass && envStatus.env === 'CLEAN';
@@ -540,13 +564,16 @@ for (const task of selected) {
   console.log(`${envStatus.env === 'CLEAN' ? (pass ? 'PASS' : 'FAIL') : `${envStatus.env} (grader: ${g.pass ? 'PASS' : 'FAIL'})`} ${String(run.seconds).padStart(5)}s  ${pass ? '' : g.detail.slice(0, 110)}${envStatus.env === 'CLEAN' ? '' : `\n    ${envStatus.envDetail.slice(0, 300)}`}`);
 }
 
-const passed = results.filter((r) => r.pass).length;
-const byDiff = ['easy', 'medium', 'hard'].map((d) => { const x = results.filter((r) => r.difficulty === d); return `${d} ${x.filter((r) => r.pass).length}/${x.length}`; }).join(', ');
+const graded = results.filter((r) => r.env !== 'SETUP_FAILED');
+const notRun = results.filter((r) => r.env === 'SETUP_FAILED');
+const passed = graded.filter((r) => r.pass).length;
+const byDiff = ['easy', 'medium', 'hard'].map((d) => { const x = graded.filter((r) => r.difficulty === d); return `${d} ${x.filter((r) => r.pass).length}/${x.length}`; }).join(', ');
 const minutes = Math.round(results.reduce((a, r) => a + r.seconds, 0) / 60);
-const contaminated = results.filter((r) => r.env !== 'CLEAN');
+const contaminated = graded.filter((r) => r.env !== 'CLEAN');
 const summary = [
   `# Eval run ${runId}`, '', `Baseline: ${baseline} (${baselineSha})`, '', `Environment: ${envLine}`, '',
-  `Score: **${passed}/${results.length}** (${Math.round((100 * passed) / results.length)}%)  |  ${byDiff}  |  ${minutes} min total`, '',
+  `Score: **${passed}/${graded.length}** (${graded.length ? Math.round((100 * passed) / graded.length) : 0}%)  |  ${byDiff}  |  ${minutes} min total`, '',
+  ...(notRun.length ? [`Not run: ${notRun.length} task(s) excluded from the score because setup failed before the agent started (${notRun.map((r) => r.id).join(', ')}). Re-run them.`, ''] : []),
   ...(contaminated.length ? [`Dependency environment: ${contaminated.length} task(s) not CLEAN (${contaminated.map((r) => `${r.id} ${r.env}`).join(', ')}); these never count as PASS. Details in results.json (env, envDetail, graderPass).`, ''] : []),
   '| Task | Title | Level | Result | Time | Changes | Why it failed |', '|---|---|---|---|---|---|---|',
   ...results.map((r) => `| ${r.id} | ${r.title} | ${r.difficulty} | ${r.env === 'CLEAN' ? (r.pass ? 'PASS' : 'FAIL') : `${r.env} (grader: ${r.graderPass ? 'PASS' : 'FAIL'})`}${r.timedOut ? ' (timeout)' : ''} | ${r.seconds}s | ${r.diff.replace(/\|/g, '/')} | ${r.pass ? '' : r.detail.replace(/\|/g, '/').replace(/\n/g, ' ').slice(0, 160)} |`),
@@ -558,10 +585,10 @@ fs.writeFileSync(path.join(outDir, 'results.json'), JSON.stringify(results, null
 const fpTasks = results.filter((r) => r.fingerprint).map((r) => ({ id: r.id, ...r.fingerprint }));
 if (fpTasks.length) {
   const runFp = sha256(JSON.stringify(fpTasks.map(({ id, agent_config, agent_args, env_names, env_values, jcode_sha256, model: m, task_prompt, tools_root, baseline: b }) => [id, agent_config, agent_args, env_names, env_values, jcode_sha256, m, task_prompt, tools_root, b])));
-  fs.writeFileSync(path.join(outDir, 'effective-config.json'), JSON.stringify({ run: runId, mode: fsContain ? 'contained' : 'control-equivalent', jcode: jcodeIdentity, baseline: baselineSha, env: envLine, run_fingerprint: runFp, tasks: fpTasks }, null, 2));
+  fs.writeFileSync(path.join(outDir, 'effective-config.json'), JSON.stringify({ run: runId, mode: fsContain ? 'contained' : 'control-equivalent', jcode: jcodeIdentity(), baseline: baselineSha, env: envLine, run_fingerprint: runFp, tasks: fpTasks }, null, 2));
   console.log(`Effective-config fingerprint: ${runFp}`);
 }
 const hist = path.join(EVALS, 'results', 'history.csv');
 if (!fs.existsSync(hist)) fs.writeFileSync(hist, 'run,agent,passed,total,easy_medium_hard,minutes\n');
-fs.appendFileSync(hist, `${runId},${agent === 'none' ? 'baseline' : `${provider}/${model}`},${passed},${results.length},"${byDiff}",${minutes}\n`);
-console.log(`\nScore ${passed}/${results.length}  (${byDiff})  ${minutes} min\nReport: ${path.join(outDir, 'summary.md')}\nSandboxes kept for review: ${root}`);
+fs.appendFileSync(hist, `${runId},${agent === 'none' ? 'baseline' : `${provider}/${model}`},${passed},${graded.length},"${byDiff}",${minutes}\n`);
+console.log(`\nScore ${passed}/${graded.length}  (${byDiff})  ${minutes} min${notRun.length ? `  |  NOT RUN (setup failed): ${notRun.map((r) => r.id).join(', ')}` : ''}\nReport: ${path.join(outDir, 'summary.md')}\nSandboxes kept for review: ${root}`);

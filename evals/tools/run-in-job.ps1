@@ -220,6 +220,8 @@ public static class EvalJob {
               IntPtr h; pid = Start(exe, args, cwd, env, out h);
               return WaitExit(h, timeoutMs, out timedOut);
             }
+          // True when a process started with Start() has already exited (non-blocking).
+          public static bool HasExited(IntPtr h) { return WaitForSingleObject(h, 0) == 0; }
           // Terminate a process this script started (the in-container relay) and close its handle.
           public static bool Kill(IntPtr h) {
             bool ok = TerminateProcess(h, 1);
@@ -250,9 +252,25 @@ public static class ModelBroker {
     try { Console.Error.WriteLine(l); } catch { }
     if (!string.IsNullOrEmpty(logPath)) lock (typeof(ModelBroker)) { try { File.AppendAllText(logPath, l + Line); } catch { } }
   }
-  static void Pump(Stream a, Stream b) {
-    Task t1 = a.CopyToAsync(b), t2 = b.CopyToAsync(a);
-    Task.WhenAny(t1, t2).ContinueWith(_ => { try { a.Dispose(); } catch { } try { b.Dispose(); } catch { } });
+  static readonly System.Collections.Generic.HashSet<IDisposable> active = new System.Collections.Generic.HashSet<IDisposable>();
+  static volatile NamedPipeServerStream pending;
+  // A named pipe has no half-close, so EOF on the pipe means the relay closed it: the client is gone and both
+  // sides are closed. EOF from the upstream means the response is complete: drain the pipe (the relay has read
+  // every byte) before closing, so the tail of the response is never discarded.
+  static void Pump(NamedPipeServerStream pipe, TcpClient tcp) {
+    NetworkStream ns = tcp.GetStream();
+    lock (active) { active.Add(pipe); active.Add(tcp); }
+    int closed = 0;
+    Action closeAll = () => {
+      if (Interlocked.Exchange(ref closed, 1) == 1) return;
+      lock (active) { active.Remove(pipe); active.Remove(tcp); }
+      try { pipe.Dispose(); } catch { } try { tcp.Close(); } catch { }
+    };
+    pipe.CopyToAsync(ns).ContinueWith(t => closeAll());
+    ns.CopyToAsync(pipe).ContinueWith(t => {
+      if (!t.IsFaulted && !t.IsCanceled) { try { pipe.Flush(); pipe.WaitForPipeDrain(); } catch { } }
+      closeAll();
+    });
   }
   static NamedPipeServerStream NewInstance(string pipe, bool first) {
     IntPtr sd; if (!ConvertStringSecurityDescriptorToSecurityDescriptor(Sddl, 1, out sd, IntPtr.Zero)) throw new Exception("SDDL conversion failed: " + Marshal.GetLastWin32Error());
@@ -267,6 +285,7 @@ public static class ModelBroker {
     logPath = log;
     var ip = IPAddress.Parse(host);
     if (!IPAddress.IsLoopback(ip)) throw new Exception("non-loopback upstream refused: " + host);
+    if (port < 1 || port > 65535) throw new Exception("upstream port out of range: " + port);
     new SecurityIdentifier(acSid);
     string me = WindowsIdentity.GetCurrent().User.Value;
     Sddl = "D:P(A;;GA;;;" + me + ")(A;;0x12019b;;;" + acSid + ")S:(ML;;NW;;;LW)";
@@ -275,21 +294,30 @@ public static class ModelBroker {
     worker = new Thread(() => {
       var srv = first;
       while (!stop) {
+        pending = srv;
         try { srv.WaitForConnection(); } catch (Exception e) { if (!stop) Log("wait failed: " + e.Message); break; }
         if (stop) { srv.Dispose(); break; }
         int n = Interlocked.Increment(ref connections);
         var cur = srv;
         try { srv = NewInstance(pipe, false); } catch (Exception e) { Log("next instance failed: " + e.Message); srv = null; }
-        try { var tcp = new TcpClient(); tcp.Connect(ip, port); Log("conn#" + n + " pipe -> " + host + ":" + port); Pump(cur, tcp.GetStream()); }
-        catch (Exception e) { Log("conn#" + n + " upstream connect failed: " + e.Message); cur.Dispose(); }
+        // Dial the upstream off the accept thread so a slow or refused connect never delays the next client.
+        Task.Run(() => {
+          try { var tcp = new TcpClient(); tcp.Connect(ip, port); Log("conn#" + n + " pipe -> " + host + ":" + port); Pump(cur, tcp); }
+          catch (Exception e) { Log("conn#" + n + " upstream connect failed: " + e.Message); try { cur.Dispose(); } catch { } }
+        });
         if (srv == null) break;
       }
+      pending = null;
     });
     worker.IsBackground = true; worker.Start();
   }
+  // Really stop: close the instance waiting for a connection (unblocks the accept loop) and every live pump.
   public static void Stop() {
     stop = true;
-    Log("stopped after " + connections + " connection(s)");
+    var p = pending; if (p != null) { try { p.Dispose(); } catch { } }
+    IDisposable[] live; lock (active) { live = new IDisposable[active.Count]; active.CopyTo(live); active.Clear(); }
+    foreach (var d in live) { try { d.Dispose(); } catch { } }
+    Log("stopped after " + connections + " connection(s), closed " + live.Length / 2 + " live connection(s)");
   }
 }
 '@
@@ -501,6 +529,8 @@ function Restore-Sandbox {
         [ModelBroker]::Start($ModelPipe, [EvalJob]::ContainerSidString(), $upHost, $upPort, $brokerLog)
         $script:brokerStarted = $true
         Note "model broker: pipe=\\.\pipe\$ModelPipe upstream(fixed)=${upHost}:${upPort} log=$brokerLog"
+        # A leftover log from an earlier run in the same home must not count as this relay's readiness.
+        if (Test-Path -LiteralPath $relayLog) { Remove-Item -LiteralPath $relayLog -Force }
         $relayArgs = ([EvalJob]::Quote('--preserve-symlinks-main')) + ' ' + ([EvalJob]::Quote($relayScript)) + ' ' + $RelayPort + ' ' + ([EvalJob]::Quote($ModelPipe)) + ' ' + ([EvalJob]::Quote($relayLog))
         $script:relayPid = [EvalJob]::Start($nodeExe, $relayArgs, $WritableRoot, [IntPtr]::Zero, [ref]$script:relayHandle)
         $script:relayStarted = $true
@@ -508,8 +538,12 @@ function Restore-Sandbox {
         $ready = $false
         for ($i = 0; $i -lt 100; $i++) {
           Start-Sleep -Milliseconds 200
-          if (Test-Path -LiteralPath $relayLog) {
-            if ((Get-Content -Raw -LiteralPath $relayLog) -match 'listening 127\.0\.0\.1:') { $ready = $true; break }
+          $relayText = if (Test-Path -LiteralPath $relayLog) { Get-Content -Raw -LiteralPath $relayLog } else { '' }
+          if ($relayText -match "listening 127\.0\.0\.1:$RelayPort ") { $ready = $true; break }
+          # Fail fast instead of waiting out the full 20 s when the relay has already died (e.g. port in use).
+          if ([EvalJob]::HasExited($script:relayHandle)) {
+            $why = if ($relayText -match 'listen failed: ([^\r\n]*)') { $Matches[1] } else { 'no reason logged' }
+            throw "in-container relay exited before listening on 127.0.0.1:${RelayPort}: $why"
           }
         }
         if (-not $ready) { throw "in-container relay did not report listening on 127.0.0.1:$RelayPort within 20s" }
@@ -519,7 +553,8 @@ function Restore-Sandbox {
       Note "agent home / model access setup failed, agent not started: $($_.Exception.Message)"
       Stop-ModelAccess
       Restore-ExtraAcls
-      try { [void][EvalJob]::DeleteContainer($containerName) } catch { }
+      # Restore-Sandbox also deletes the container profile; in control mode (no container) it is a no-op.
+      Restore-Sandbox
       exit 4
     }
   }
