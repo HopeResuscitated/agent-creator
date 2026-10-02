@@ -3,6 +3,12 @@
 Everything here resolves paths relative to the repo (`evals/bench/../..`) or to an explicit `--out` / `-Out`
 directory. Nothing writes into the repo except `evals/run.ts` itself (evals/results/, as always).
 
+Runner node: every script runs node by ABSOLUTE path (node.sh / node.ps1; override with NODE_BIN), never `node`
+from PATH, and refuses a binary whose version or sha256 differs from evals/baseline-env.json. run.ts enforces the
+same pin for contained and control jcode runs and --stage-tools-only (it copies its own node into the agent's
+tools root); --allow-node-drift is a recorded debugging override only. Run the regression tests with the same
+binary, e.g. "$NODE_BIN" evals/tools/contained-child-test.mjs.
+
 Benchmark runs
   suite.sh --out <dir> <label> <contain|control> [run.ts args]   one run + meter + watchdog + fingerprints,
                                                                    then analysis-<label>.txt / classify-<label>.txt

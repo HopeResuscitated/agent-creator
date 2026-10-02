@@ -9,6 +9,7 @@
 # reference run's for the same task, else the sequence stops (exit 4). Log: <out>/reduced.log.
 # Cycle-6 reduced benchmark: reduced.sh --out <dir> --ref <C1>/effective-config.json D1-R:control C2-R:contain D2-R:control
 set -u
+source "$(dirname "${BASH_SOURCE[0]}")/node.sh" || exit 3
 BENCH=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$BENCH/../.." && pwd)
 OUT=; TASKS=T13,T14,T17,T04,T05,T03,T08,T01; REF=; HEAD_WANT=; RUNS=()
 while [ $# -gt 0 ]; do
@@ -35,7 +36,7 @@ gate() {
 fpcheck() {
   [ -n "$REF" ] || return 0
   local dir; dir=$(grep -h "^Report: " "$OUT/run-$1.log" | sed 's/^Report: //; s/\r$//; s/[\\/]summary\.md$//')
-  node -e "
+  "$NODE_BIN" -e "
     const fs=require('fs');
     const a=JSON.parse(fs.readFileSync(process.argv[1],'utf8')), b=JSON.parse(fs.readFileSync(process.argv[2]+'/effective-config.json','utf8'));
     const keys=['agent_config','agent_args','env_names','env_values','jcode_sha256','model','task_prompt','tools_root','baseline'];

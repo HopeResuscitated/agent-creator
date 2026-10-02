@@ -8,11 +8,12 @@
 # Tools are staged fresh into <Out>\stage via run.ts --stage-tools-only. Exit 0 only when all checks pass.
 param([Parameter(Mandatory = $true)][string]$Out, [string]$ModelUpstream = '127.0.0.1:11434')
 $ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot "node.ps1")
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 New-Item -ItemType Directory -Force -Path $Out | Out-Null; $Out = (Resolve-Path $Out).Path
 $stage = Join-Path $Out 'stage'
 if (-not (Test-Path (Join-Path $stage '_agent-tools\node.exe'))) {
-  Push-Location $repo; & node evals/run.ts --stage-tools-only $stage 2>&1 | Select-Object -Last 2 | ForEach-Object { "  $_" }; Pop-Location
+  Push-Location $repo; & $NodeBin evals/run.ts --stage-tools-only $stage 2>&1 | Select-Object -Last 2 | ForEach-Object { "  $_" }; Pop-Location
 }
 $tools = Join-Path $stage '_agent-tools'
 $root = Join-Path $Out 'sec'; if (Test-Path $root) { Remove-Item -Recurse -Force $root }

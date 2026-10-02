@@ -7,17 +7,18 @@
 param([Parameter(Mandatory = $true)][string]$Out, [string]$Meter = '127.0.0.2:11439', [int]$Reps = 2,
   [string]$Cases = 'A2_malformed_first_verbatim,B_text_then_malformed,C_wellformed')
 $ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot "node.ps1")
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 New-Item -ItemType Directory -Force -Path $Out | Out-Null; $Out = (Resolve-Path $Out).Path
 $stage = Join-Path $Out 'stage'
 if (-not (Test-Path (Join-Path $stage '_agent-tools\node.exe'))) {
-  Push-Location $repo; & node evals/run.ts --stage-tools-only $stage 2>&1 | Select-Object -Last 2 | ForEach-Object { "  $_" }; Pop-Location
+  Push-Location $repo; & $NodeBin evals/run.ts --stage-tools-only $stage 2>&1 | Select-Object -Last 2 | ForEach-Object { "  $_" }; Pop-Location
 }
 $tools = Join-Path $stage '_agent-tools'
 $mHost, $mPort = $Meter.Split(':')
 $env:PROBE_CASES = $Cases
 foreach ($mode in 'contained', 'control') {
-  Push-Location $repo; $prep = & node evals/run.ts --prepare T05 2>$null; Pop-Location
+  Push-Location $repo; $prep = & $NodeBin evals/run.ts --prepare T05 2>$null; Pop-Location
   $sb = (($prep | Select-String '^Sandbox: (.*)$').Matches[0].Groups[1].Value).Trim()
   $dst = "$sb-stream-$mode"; if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
   Move-Item $sb $dst; $sb = $dst

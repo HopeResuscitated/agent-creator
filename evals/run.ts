@@ -159,12 +159,44 @@ function envDrift(): string[] {
   return d;
 }
 if (argv.includes('--write-env')) {
-  fs.writeFileSync(ENV_FILE, JSON.stringify({ baseline, node: process.version, packages: envPackages() }, null, 2) + '\n');
+  // node_staged_sha256 (the patched copy staged for the agent) is kept as-is: after a node change, staging
+  // refuses and prints the new value to pin.
+  const prevStaged = fs.existsSync(ENV_FILE) ? JSON.parse(fs.readFileSync(ENV_FILE, 'utf8')).node_staged_sha256 : undefined;
+  fs.writeFileSync(ENV_FILE, JSON.stringify({ baseline, node: process.version, node_sha256: crypto.createHash('sha256').update(fs.readFileSync(process.execPath)).digest('hex'), node_staged_sha256: prevStaged, packages: envPackages() }, null, 2) + '\n');
   console.log(`wrote ${ENV_FILE}`); process.exit(0);
 }
 const drift = envDrift();
 const envLine = drift.length ? `DRIFT (${drift.length}): ${drift.join(', ')}` : 'matches evals/baseline-env.json';
 if (drift.length) console.warn(`WARNING eval environment differs from pinned manifest: ${drift.join(', ')}`);
+
+/**
+ * Runner-node gate. run.ts copies ITS OWN node binary into the agent's tools root, so the runner's node is an
+ * agent input: a shell whose PATH resolves a different node silently changes the agent's toolchain (seen:
+ * v26.7.0 from git-bash, v22.23.2 from a PowerShell with another PATH order). Contained and control jcode runs
+ * (and --stage-tools-only, used by the regression tests) therefore refuse to start unless process.version and
+ * the binary's sha256 equal evals/baseline-env.json. --allow-node-drift is a loud debugging override only:
+ * it is printed and recorded in baseline.txt, and such a run is not comparable evidence.
+ */
+const allowNodeDrift = argv.includes('--allow-node-drift');
+const runnerNode = (() => {
+  const pin: { node?: string; node_sha256?: string } = fs.existsSync(ENV_FILE) ? JSON.parse(fs.readFileSync(ENV_FILE, 'utf8')) : {};
+  const sha = crypto.createHash('sha256').update(fs.readFileSync(process.execPath)).digest('hex');
+  const bad: string[] = [];
+  if (!pin.node) bad.push('no pinned node version in evals/baseline-env.json');
+  else if (pin.node !== process.version) bad.push(`version ${process.version} != pinned ${pin.node}`);
+  if (!pin.node_sha256) bad.push('no pinned node_sha256 in evals/baseline-env.json');
+  else if (pin.node_sha256 !== sha) bad.push(`sha256 ${sha.slice(0, 16)}... != pinned ${pin.node_sha256.slice(0, 16)}...`);
+  return { path: process.execPath, version: process.version, sha256: sha, bad };
+})();
+const nodeGated = agent === 'jcode' || !!flag('stage-tools-only');
+const nodeLine = `${runnerNode.version} sha256=${runnerNode.sha256} path=${runnerNode.path}${runnerNode.bad.length ? ` DRIFT: ${runnerNode.bad.join('; ')}${allowNodeDrift ? ' (--allow-node-drift: NOT comparable evidence)' : ''}` : ' (matches pin)'}`;
+if (nodeGated && runnerNode.bad.length) {
+  if (!allowNodeDrift) {
+    console.error(`REFUSING TO RUN: runner node is not the pinned node (${runnerNode.bad.join('; ')}).\n  runner: ${runnerNode.path}\n  run.ts stages its own node into the agent's tools root, so a different runner node changes the agent's inputs.\n  Launch with the pinned node by absolute path (evals/bench scripts do this; override with NODE_BIN), e.g.\n    "<pinned node.exe>" evals/run.ts ...\n  or pass --allow-node-drift for debugging only (recorded, not comparable).`);
+    process.exit(2);
+  }
+  console.warn(`\n*** WARNING --allow-node-drift: runner node DRIFT (${runnerNode.bad.join('; ')}); runner=${runnerNode.path}. Results are NOT comparable evidence. ***\n`);
+}
 
 /**
  * Give the sandbox its OWN physical copy of the repo's node_modules (the golden source),
@@ -309,6 +341,17 @@ function stageTools(root: string): { dir: string; detail: string } {
   const dir = path.join(root, '_agent-tools');
   fs.mkdirSync(dir, { recursive: true });
   const nodeDetail = stageNode(path.join(dir, 'node.exe'));
+  // The staged node must be exactly the pinned build after the deterministic patch above (node_staged_sha256 in
+  // evals/baseline-env.json): the agent's toolchain is gated, not only the runner's.
+  {
+    const pin: { node_staged_sha256?: string } = fs.existsSync(ENV_FILE) ? JSON.parse(fs.readFileSync(ENV_FILE, 'utf8')) : {};
+    const got = crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, 'node.exe'))).digest('hex');
+    if (got !== pin.node_staged_sha256) {
+      const msg = `staged agent node sha256 ${got} != pinned node_staged_sha256 ${pin.node_staged_sha256 ?? '(none)'}`;
+      if (!allowNodeDrift) { fs.rmSync(path.join(dir, 'node.exe'), { force: true }); throw new Error(`REFUSING TO RUN: ${msg}`); }
+      console.warn(`*** WARNING --allow-node-drift: ${msg} ***`);
+    }
+  }
   fs.copyFileSync(path.join(EVALS, 'tools', 'model-relay.mjs'), path.join(dir, 'model-relay.mjs'));
   // npm/npx: the shims and npm's own package from the SAME node install, so npm runs on the patched node.
   // No global prefix, no cache, no credentials are copied; the container has no network, so npm can only run
@@ -548,7 +591,7 @@ console.log(fsContain
     : agent === 'jcode'
       ? 'Containment: *** OFF (--no-contain-unsafe --control-user-config) — the agent runs under the ordinary user token with the user\'s own jcode config. Results from this run are NOT contained evidence. ***'
       : 'Containment: n/a (no external agent process)');
-fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\njcode: ${jcodeLine}\ncontainment: ${fsContain ? `appcontainer+acl+broker upstream=${modelUpstream} tools=${toolsRoot} staged=${toolsStage.detail}` : controlEquivalent ? `OFF config-equivalent control upstream=${modelUpstream} (direct) tools=${toolsRoot} staged=${toolsStage.detail}` : 'OFF (--no-contain-unsafe --control-user-config)'}\n`);
+fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\nrunner node: ${nodeLine}\njcode: ${jcodeLine}\ncontainment: ${fsContain ? `appcontainer+acl+broker upstream=${modelUpstream} tools=${toolsRoot} staged=${toolsStage.detail}` : controlEquivalent ? `OFF config-equivalent control upstream=${modelUpstream} (direct) tools=${toolsRoot} staged=${toolsStage.detail}` : 'OFF (--no-contain-unsafe --control-user-config)'}\n`);
 const results: any[] = [];
 for (const task of selected) {
   process.stdout.write(`${task.id} ${task.title.padEnd(42)} `);
@@ -579,7 +622,7 @@ const byDiff = ['easy', 'medium', 'hard'].map((d) => { const x = graded.filter((
 const minutes = Math.round(results.reduce((a, r) => a + r.seconds, 0) / 60);
 const contaminated = graded.filter((r) => r.env !== 'CLEAN');
 const summary = [
-  `# Eval run ${runId}`, '', `Baseline: ${baseline} (${baselineSha})`, '', `Environment: ${envLine}`, '',
+  `# Eval run ${runId}`, '', `Baseline: ${baseline} (${baselineSha})`, '', `Environment: ${envLine}`, '', `Runner node: ${nodeLine}`, '',
   `Score: **${passed}/${graded.length}** (${graded.length ? Math.round((100 * passed) / graded.length) : 0}%)  |  ${byDiff}  |  ${minutes} min total`, '',
   ...(notRun.length ? [`Not run: ${notRun.length} task(s) excluded from the score because setup failed before the agent started (${notRun.map((r) => r.id).join(', ')}). Re-run them.`, ''] : []),
   ...(contaminated.length ? [`Dependency environment: ${contaminated.length} task(s) not CLEAN (${contaminated.map((r) => `${r.id} ${r.env}`).join(', ')}); these never count as PASS. Details in results.json (env, envDetail, graderPass).`, ''] : []),
