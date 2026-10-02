@@ -2,12 +2,22 @@
 # Update `status` fields as phases complete. Evidence archive: C:/Users/cierra/hermes-bench-archive
 project: hermes-jcode-contained-agent
 repo: "C:/Users/cierra/Desktop/agent creator"
-branch: cierra-wip-2026-09-29      # local only, never pushed
-head: bab3a17                      # as of 2026-10-02 (14f50f2 node pin, 94ff963 *.sh LF, bab3a17 meter abort)
+branch: cierra-wip-2026-09-29      # PUSH STATE UNRESOLVED: origin has this branch at 6ca495a (pushed by another
+                                   # session) although this file said "local only, never pushed". Local is ahead of
+                                   # origin by the commits under harness_commits plus this status commit. Hermes has not pushed.
+head: 170cbd5                      # harness HEAD as of 2026-10-02 (the PLAN/HANDOFF status commit sits on top of it)
 updated: 2026-10-02
 
+harness_commits:                   # since 6ca495a (the last commit on origin)
+  94ff963: "*.sh checked out with LF (.gitattributes); no file content changed"
+  bab3a17: "meter aborts its upstream request when the agent disconnects (meter incident, below)"
+  e1d3880: "PLAN/HANDOFF after A0"
+  480ea05: "A0b: model-server pin (Ollama version + model digest), fail closed, in the fingerprint"
+  ac49b52: "A0b: model-server query uses a closed connection (no keep-alive socket to Ollama)"
+  170cbd5: "suite.sh/reduced.sh: a meter that dies mid-run fails the run (exit 6) instead of becoming model FAILs"
+
 architecture: |
-  evals/bench/suite.sh -> evals/run.ts (stages patched node/npm/relay, agent home, fingerprint)
+  evals/bench/suite.sh -> evals/run.ts (node pin + model-server pin gates, stages patched node/npm/relay, agent home, fingerprint)
     -> evals/tools/run-in-job.ps1 (Job Object, AppContainer, ACL grants, fixed env + PATH)
       -> jcode (contained) -> model-relay.mjs 127.0.0.1:<rand> -> named pipe (DACL: user + this run's AC SID, Low IL)
       -> ModelBroker (trusted side, one canonical 127.x upstream) -> meter.mjs 127.0.0.2:11439
@@ -30,6 +40,7 @@ status_contract:       # run-in-job.ps1 exit -> scoring
   3: "UNSAFE_PROCESS_TREE - not graded, counts as fail"
   4: "SETUP_FAILED - agent never started, excluded from score"
   5: "AGENT_STATUS_UNKNOWN - not graded, counts as fail"
+  suite_sh_exit_6: "meter died during the run - the whole run is not evidence (reduced.sh stops)"
 
 known_limits_contained: ["del/erase denied (rmdir /s, fs.rmSync work)", "no taskkill/tasklist (node --test ~+9 s)",
                          "no python", "no network (npm install fails)"]
@@ -40,37 +51,97 @@ evidence:
                       HTTP 500 if first output, else HTTP 200 stream ending with no finish/usage; 14/393 requests"
   cycle7_T05: "2/5 contained, 2/5 control; every failure ends on an incomplete stream, every pass is complete"
   decision_rule: "PASSED (pooled). Holding before infrastructure BY CHOICE: same-mode disagreement is 41%"
+  cycle8: "archive C:/Users/cierra/hermes-bench-archive/cycle8 (R-C, R-D, 4x T01 fingerprints, probe run)"
 
 phases:
   A0_runner_node:
-    status: done (14f50f2) - verified: 4 launches (git-bash/PowerShell x contained/control) identical fingerprint 4dcba4e1;
-            reduced.sh run end to end (R-C contained 6/8, R-D control 5/8, 8/8 per-task fingerprints match).
-            t05x6.sh and probe.sh NOT yet run end to end (syntax-checked only).
-    found_during_A0: "meter.mjs kept Ollama generating after a killed agent (709 s dead compute billed to the next task); fixed bab3a17"
-    accept: "git-bash and PowerShell launches give identical fingerprints (all 9 per-task fields)"
+    status: done (14f50f2)
+    verified: ["4 T01 launches (git-bash/PowerShell x contained/control): identical fingerprint 4dcba4e1 (pre-A0b)",
+               "bare v22 node refused for runs and --stage-tools-only (exit 2, nothing staged)",
+               "reduced.sh run end to end: R-C contained 6/8, R-D control 5/8, 8/8 per-task fingerprints match"]
+    rc_rd_per_task: "T01 P/P, T03 P/P, T04 P/P, T05 P/P, T08 F/F, T13 F/F, T14 P/F(timeout, build errors), T17 P/P (contained/control).
+                     The only disagreement is T14; no contained-only failure. R-C TRIP=0; R-D TRIP=1161 = documented control
+                     pattern (agent dials the meter directly; cycle-6 control: 1514/1351) + 3 from an unrelated client at 12:51."
+    failure_causes: {T13: "malformed tool call -> incomplete stream -> jcode exits 0 (A1 case b); also failed in baseline",
+                     T08: "CPU timeout (last turn waited 801 s for the first token); also failed in baseline",
+                     T03_T14_T17: "model still working at the task timeout (no hang); ~7 tok/s CPU"}
+    meter_incident: "Found in R-C: when an agent was killed at its task timeout, meter.mjs logged the client close but
+                     kept its own request to Ollama open, so Ollama kept generating for a dead client and the next task
+                     queued behind it (709 s of dead compute after T08's timeout, 641 s of it billed to T13's first
+                     turn). Fixed bab3a17: meter destroys the upstream request on client close; records client_gone;
+                     analyze/reanalyze exclude client_gone from stream stats. Verified on real Ollama: request after a
+                     killed generation ttfb 147-169 ms (was 641 s); Ollama's own log ends the killed request at the disconnect."
+    accept: "git-bash and PowerShell launches give identical fingerprints (all per-task fields)"
+  A0_scripts:
+    reduced.sh: "RUN END TO END (R-C, R-D above; plus a zero-task run proving the exit-6 meter-death stop)"
+    t05x6.sh: "RUN END TO END 2026-10-02 at e1d3880 (pre-A0b). Contained 2/3 (C-a F, C-b P, C-c P), control 2/3
+               (D-a P, D-b F, D-c P). Both failures end on an incomplete stream with an Ollama parse warning at its
+               end (C-a #5, D-b #4: finish empty, no usage); every pass is complete. Per-run fingerprints match
+               (mismatches=0). Contained TRIP=0; control 222/30/98 = documented control pattern."
+    probe.sh: "RUN END TO END 2026-10-02, contained and control. Both modes reproduce the cycle-7 defect identically:
+               malformed-first -> HTTP 500 (one contained rep returned a well-formed tool call instead: model
+               nondeterminism); text-then-malformed -> HTTP 200 ending with finish_reason null, no usage, no [DONE];
+               well-formed -> complete. Containment cleanup proven both modes. 1 TRIP = streamprobe's control client
+               dialing the meter directly (expected in control)."
   A0b_model_server_pin:
-    status: todo
-    do: ["disable Ollama auto-update during benchmarks", "record ollama --version + model digest in baseline.txt and fingerprint",
-         "gate fails closed if either changes", "copy gate reference artifacts out of %TEMP% into evals/results or the archive"]
+    status: done (480ea05, ac49b52) except one host setting
+    done: ["baseline-env.json model_server {ollama_version 0.34.4, hermes-local-32k digest 1ef2c71e...}",
+           "run.ts asks Ollama (trusted side, --ollama-api) and refuses (exit 2, before staging) on version/digest
+            mismatch, unpinned model, or unreachable Ollama; --allow-model-server-drift = recorded debug override",
+           "identity in baseline.txt, summary.md, per-task + run fingerprint; reduced.sh compares it",
+           "gate reference artifacts copied out of %TEMP% to the cycle8 archive; --ref already points at evals/results"]
+    verified: ["pinned passes; unreachable / unpinned model / tampered version / tampered digest refuse with exit 2",
+               "override warns and proceeds; --write-env keeps the pin; --stage-tools-only unaffected",
+               "T01 git-bash contained and PowerShell control (hostile env): identical new fingerprint 9609faa1"]
+    fingerprint_change: "intentional: T01 4dcba4e1 -> 9609faa1 (model_server added). Earlier runs are not fingerprint-comparable."
+    open_host_setting: "Ollama desktop auto_update_enabled=1 and v0.35.1 is already downloaded: it installs on the next
+                        app restart. The gate turns that into a refusal, not a silent change. To prevent it: Ollama
+                        app Settings -> turn off automatic updates (user action; not changed by Hermes)."
   A1_investigate:
-    status: todo
-    do: "how jcode handles HTTP 500 and streams with no finish_reason/usage; retried? where max_retries applies. No code changes."
+    status: done (read-only, jcode source C:/Users/cierra/jcode-evalpin @ 1fbb2e1b4)
+    findings:
+      http_500: "retried: text-classified as retryable, provider.max_retries (default 8 incl. first try), backoff 1 s x2^n
+                 +-20%, capped by retry_backoff_cap_secs (30). Exhausted -> run exits non-zero."
+      eof_no_finish: "NOT an error: openrouter stream.rs emits MessageEnd{stop_reason: None} and returns Ok on EOF; no retry;
+                      'incomplete' continuation skipped (no stop reason); partial prose becomes final_text; run exits 0.
+                      This is the T13 / T05 failure mode."
+      retry_rollback: "'[connection interrupted, retrying response from the top]' fires only for mid-stream transport errors
+                       (error from the body stream / idle timeout), not for 500-before-output or clean EOF."
+      knobs: "[provider] max_retries / JCODE_MAX_RETRIES, retry_backoff_cap_secs, stream_idle_timeout_secs; none makes clean EOF an error"
+      xml_recovery_1fbb2e1b4: "recovers complete <function=..> calls written into text content; requires the closing tag; not the 500/EOF paths"
   A2_fix:
-    status: todo (needs approval)
-    options_ranked: ["jcode-native retry of both cases", "trusted-side retry shim in meter position (joins tested set)",
-                     "model-side: tool-turn temperature / chat template"]
+    status: APPROVED by user 2026-10-02 (jcode-native option, cap 2, only before any tool ran) - NOT implemented as of this commit
+    proposal: "jcode-native (option 1): in the openai-compatible stream parser, a clean EOF with no finish_reason AND no
+               [DONE] becomes a retryable 'incomplete stream' error routed through the existing RetryRollback path
+               (clears partial text/tool calls, logs the marker). Separate cap of 2 for this class; only when no tool
+               call from this response has executed. HTTP 500 already retries (A1) - optionally lower its cap for the
+               parse-error body to the same 2."
+    why_decision: ["changes the agent binary -> new pinned jcode sha256 and a re-baseline (contract change)",
+                   "retrying samples the model again: improves pass rate by resampling, must be reported as such"]
+    alternatives: ["trusted-side retry shim in the meter position (no agent change; becomes part of the tested set)",
+                   "model-side: tool-turn temperature / chat template", "Ollama upgrade (0.35.1 may change the qwen parser) - needs a new pin + baseline"]
     constraints: ["retry cap 2-3 for this class", "retry only when nothing executed", "no duplicated partial text",
                   "no new network path; broker upstream unchanged"]
   B_validate:
-    status: todo
-    do: ["probe.sh malformed cases", "5 contained + 5 control T05", "child-test 10/10, probe 20/20, byte tests 12/12 + 9/9"]
+    status: blocked on A2 (pre-fix evidence collected)
+    pre_fix: ["probe.sh both modes (above)", "t05x6 3+3 (above)", "gates at 170cbd5 (see HANDOFF test table)"]
+    do_after_A2: ["probe.sh malformed cases", "5 contained + 5 control T05", "child-test 10/10, probe 20/20, byte tests 12/12 + 9/9"]
     accept: "no T05 failure ends on an unrecovered incomplete stream; retries bounded and logged"
   H_hardware:          # must be decided BEFORE C; C must run on final hardware + model
-    status: open decision
-    question: "local NVIDIA GPU (preferred, no egress) vs remote inference (needs tunnel-to-loopback + egress policy)"
+    status: open decision (user)
+    proven_on_cpu: ["containment, fingerprints, gates and the contained-vs-control comparison do not depend on speed",
+                    "T03/T14/T17 timeouts are slow-but-progressing generation, not hangs or harness faults",
+                    "T08's failure is first-token latency (801 s) on a long context"]
+    hardware_dependent: ["pass rates of T03/T08/T14/T17", "suite wall time (8 tasks ~2-2.5 h per mode)",
+                         "statistical power of C (more reps per hour)"]
+    resolves: "local NVIDIA GPU with enough VRAM for the chosen quant of the 32B model at 32k context (preferred, no egress),
+               or remote inference via tunnel-to-loopback + egress policy"
+    rerun_after: ["re-pin model_server (new digest if re-quantised) and node/jcode if changed", "full gates",
+                  "T01 x4 fingerprint check", "quant_trial", "then C"]
     quant_trial: "Q4_K_M vs Q8_0; metric = malformed tool-call rate over >=300 requests, plus tok/s; pick ONE for all evals"
+    timeouts: "do not raise task timeouts to manufacture passes; decide them with the hardware, pre-registered for C"
   C_rebaseline:
-    status: todo
+    status: blocked on A2 + H
     tasks: [T13, T14, T17, T04, T05, T03, T08, T01]
     design: "3 reps per mode, alternating; paired analysis across tasks; pre-registered before running"
     primary_metrics: [incomplete_stream_rate, retry_recovery_rate, invariants]
@@ -98,6 +169,7 @@ rejected_ideas:        # reviewed 2026-10-02; do not re-propose without new evid
   - "q4-for-dev / q8-for-baseline auto routing (results don't transfer)"
   - "parallel tool calls before A2; linked/junction tools staging (node.exe is patched); git-status fingerprints; mtime digest cache"
   - "adaptive CI stopping with 2-3 reps (cannot reach equivalence)"
+  - "raising task timeouts to turn CPU timeouts into passes"
 
 operating_rules:
   - "fresh Hermes session per prompt; Sonnet for mechanical work, Opus for judgment"
@@ -105,3 +177,4 @@ operating_rules:
   - "one benchmark runner at a time"
   - "Hermes compression model must be a trusted provider (was a free OpenRouter model)"
   - "repo AGENTS.md is an agent input (stale: says LM Studio/Omnicoder) - update deliberately before C"
+  - "keep the meter's output (suite.sh writes ev-<label>/meter.out); never filter it away in gate scripts"
