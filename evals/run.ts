@@ -34,6 +34,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
+import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import { checks } from './checks.ts';
@@ -214,7 +215,16 @@ let modelServerId = '';
 if (agent === 'jcode') {
   const bad: string[] = []; let version = '?', digest = '?';
   try {
-    const get = async (p: string) => { const r = await fetch(`http://${ollamaApi}${p}`, { signal: AbortSignal.timeout(15000) }); if (!r.ok) throw new Error(`${p} HTTP ${r.status}`); return r.json(); };
+    // node:http with no agent and Connection: close, so the trusted-side query holds no socket to Ollama
+    // afterwards (fetch's keep-alive pool kept one open for the whole run, which watch.ps1 rightly TRIPs on).
+    const get = (p: string) => new Promise<any>((resolve, reject) => {
+      const [h, port] = ollamaApi.split(':');
+      const q = http.get({ host: h, port: Number(port), path: p, agent: false, headers: { connection: 'close' }, timeout: 15000 }, (r) => {
+        let b = ''; r.setEncoding('utf8'); r.on('data', (c) => (b += c));
+        r.on('end', () => { if (r.statusCode !== 200) return reject(new Error(`${p} HTTP ${r.statusCode}`)); try { resolve(JSON.parse(b)); } catch (e) { reject(e); } });
+      });
+      q.on('timeout', () => q.destroy(new Error(`${p} timeout`))); q.on('error', reject);
+    });
     version = String((await get('/api/version')).version);
     const m = ((await get('/api/tags')).models ?? []).find((x: any) => x.name === model || x.name === `${model}:latest`);
     if (m) digest = String(m.digest); else bad.push(`model ${model} not found on ${ollamaApi}`);
