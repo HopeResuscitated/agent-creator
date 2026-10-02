@@ -161,8 +161,9 @@ function envDrift(): string[] {
 if (argv.includes('--write-env')) {
   // node_staged_sha256 (the patched copy staged for the agent) is kept as-is: after a node change, staging
   // refuses and prints the new value to pin.
-  const prevStaged = fs.existsSync(ENV_FILE) ? JSON.parse(fs.readFileSync(ENV_FILE, 'utf8')).node_staged_sha256 : undefined;
-  fs.writeFileSync(ENV_FILE, JSON.stringify({ baseline, node: process.version, node_sha256: crypto.createHash('sha256').update(fs.readFileSync(process.execPath)).digest('hex'), node_staged_sha256: prevStaged, packages: envPackages() }, null, 2) + '\n');
+  const prevPin = fs.existsSync(ENV_FILE) ? JSON.parse(fs.readFileSync(ENV_FILE, 'utf8')) : {};
+  const prevStaged = prevPin.node_staged_sha256;
+  fs.writeFileSync(ENV_FILE, JSON.stringify({ baseline, node: process.version, node_sha256: crypto.createHash('sha256').update(fs.readFileSync(process.execPath)).digest('hex'), node_staged_sha256: prevStaged, model_server: prevPin.model_server, packages: envPackages() }, null, 2) + '\n');
   console.log(`wrote ${ENV_FILE}`); process.exit(0);
 }
 const drift = envDrift();
@@ -196,6 +197,40 @@ if (nodeGated && runnerNode.bad.length) {
     process.exit(2);
   }
   console.warn(`\n*** WARNING --allow-node-drift: runner node DRIFT (${runnerNode.bad.join('; ')}); runner=${runnerNode.path}. Results are NOT comparable evidence. ***\n`);
+}
+
+/**
+ * Model-server gate (PLAN A0b). The model server is an input as much as the agent binary: an Ollama update (the
+ * desktop app auto-updates on restart) or a re-pulled model silently changes what every task measures. For jcode
+ * runs, run.ts asks Ollama itself (trusted side, --ollama-api, default 127.0.0.1:11434; never through the meter or
+ * the broker) for its version and the model's digest, and refuses to start (exit 2, nothing staged) unless both
+ * equal model_server in evals/baseline-env.json. The identity goes into baseline.txt, summary.md and every task's
+ * fingerprint (model_server), so it is part of the run fingerprint. --allow-model-server-drift is a recorded
+ * debugging override only.
+ */
+const ollamaApi = flag('ollama-api') ?? '127.0.0.1:11434';
+const allowServerDrift = argv.includes('--allow-model-server-drift');
+let modelServerId = '';
+if (agent === 'jcode') {
+  const bad: string[] = []; let version = '?', digest = '?';
+  try {
+    const get = async (p: string) => { const r = await fetch(`http://${ollamaApi}${p}`, { signal: AbortSignal.timeout(15000) }); if (!r.ok) throw new Error(`${p} HTTP ${r.status}`); return r.json(); };
+    version = String((await get('/api/version')).version);
+    const m = ((await get('/api/tags')).models ?? []).find((x: any) => x.name === model || x.name === `${model}:latest`);
+    if (m) digest = String(m.digest); else bad.push(`model ${model} not found on ${ollamaApi}`);
+  } catch (e: any) { bad.push(`cannot query Ollama at ${ollamaApi}: ${e.message}`); }
+  const pin: { model_server?: { ollama_version?: string; models?: Record<string, string> } } = fs.existsSync(ENV_FILE) ? JSON.parse(fs.readFileSync(ENV_FILE, 'utf8')) : {};
+  const want = pin.model_server;
+  if (!want?.ollama_version) bad.push('no pinned model_server.ollama_version in evals/baseline-env.json');
+  else if (want.ollama_version !== version) bad.push(`ollama ${version} != pinned ${want.ollama_version}`);
+  if (!want?.models?.[model]) bad.push(`no pinned model_server.models["${model}"] digest in evals/baseline-env.json`);
+  else if (digest !== '?' && want.models[model] !== digest) bad.push(`model ${model} digest ${digest.slice(0, 16)}... != pinned ${want.models[model].slice(0, 16)}...`);
+  modelServerId = `ollama ${version} ${model}@${digest}`;
+  if (bad.length) {
+    if (!allowServerDrift) { console.error(`REFUSING TO RUN: model server is not the pinned one (${bad.join('; ')}).\n  Pin a deliberate change with a new baseline (edit model_server in evals/baseline-env.json and re-baseline), or pass --allow-model-server-drift for debugging only (recorded, not comparable).`); process.exit(2); }
+    console.warn(`\n*** WARNING --allow-model-server-drift: ${bad.join('; ')}. Results are NOT comparable evidence. ***\n`);
+    modelServerId += ` DRIFT: ${bad.join('; ')}`;
+  }
 }
 
 /**
@@ -591,7 +626,7 @@ console.log(fsContain
     : agent === 'jcode'
       ? 'Containment: *** OFF (--no-contain-unsafe --control-user-config) — the agent runs under the ordinary user token with the user\'s own jcode config. Results from this run are NOT contained evidence. ***'
       : 'Containment: n/a (no external agent process)');
-fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\nrunner node: ${nodeLine}\njcode: ${jcodeLine}\ncontainment: ${fsContain ? `appcontainer+acl+broker upstream=${modelUpstream} tools=${toolsRoot} staged=${toolsStage.detail}` : controlEquivalent ? `OFF config-equivalent control upstream=${modelUpstream} (direct) tools=${toolsRoot} staged=${toolsStage.detail}` : 'OFF (--no-contain-unsafe --control-user-config)'}\n`);
+fs.writeFileSync(path.join(outDir, 'baseline.txt'), `${baseline} ${baselineSha}\nenv: ${envLine}\nrunner node: ${nodeLine}\nmodel server: ${modelServerId || 'n/a'}\njcode: ${jcodeLine}\ncontainment: ${fsContain ? `appcontainer+acl+broker upstream=${modelUpstream} tools=${toolsRoot} staged=${toolsStage.detail}` : controlEquivalent ? `OFF config-equivalent control upstream=${modelUpstream} (direct) tools=${toolsRoot} staged=${toolsStage.detail}` : 'OFF (--no-contain-unsafe --control-user-config)'}\n`);
 const results: any[] = [];
 for (const task of selected) {
   process.stdout.write(`${task.id} ${task.title.padEnd(42)} `);
@@ -611,7 +646,7 @@ for (const task of selected) {
   const pass = g.pass && envStatus.env === 'CLEAN';
   const diff = spawnSync('git diff --stat HEAD', { cwd: ws, shell: true, encoding: 'utf8' }).stdout.trim().split('\n').pop() ?? '';
   fs.writeFileSync(path.join(outDir, `${task.id}.transcript.txt`), run.transcript);
-  results.push({ id: task.id, title: task.title, difficulty: task.difficulty, pass, detail: g.detail, seconds: run.seconds, timedOut: run.seconds >= task.timeoutMin * 60 - 5, diff, env: envStatus.env, envDetail: envStatus.envDetail, graderPass: g.pass, fingerprint: run.fingerprint });
+  results.push({ id: task.id, title: task.title, difficulty: task.difficulty, pass, detail: g.detail, seconds: run.seconds, timedOut: run.seconds >= task.timeoutMin * 60 - 5, diff, env: envStatus.env, envDetail: envStatus.envDetail, graderPass: g.pass, fingerprint: run.fingerprint && { ...run.fingerprint, model_server: modelServerId } });
   console.log(`${envStatus.env === 'CLEAN' ? (pass ? 'PASS' : 'FAIL') : `${envStatus.env} (grader: ${g.pass ? 'PASS' : 'FAIL'})`} ${String(run.seconds).padStart(5)}s  ${pass ? '' : g.detail.slice(0, 110)}${envStatus.env === 'CLEAN' ? '' : `\n    ${envStatus.envDetail.slice(0, 300)}`}`);
 }
 
@@ -622,7 +657,7 @@ const byDiff = ['easy', 'medium', 'hard'].map((d) => { const x = graded.filter((
 const minutes = Math.round(results.reduce((a, r) => a + r.seconds, 0) / 60);
 const contaminated = graded.filter((r) => r.env !== 'CLEAN');
 const summary = [
-  `# Eval run ${runId}`, '', `Baseline: ${baseline} (${baselineSha})`, '', `Environment: ${envLine}`, '', `Runner node: ${nodeLine}`, '',
+  `# Eval run ${runId}`, '', `Baseline: ${baseline} (${baselineSha})`, '', `Environment: ${envLine}`, '', `Runner node: ${nodeLine}`, '', `Model server: ${modelServerId || 'n/a'}`, '',
   `Score: **${passed}/${graded.length}** (${graded.length ? Math.round((100 * passed) / graded.length) : 0}%)  |  ${byDiff}  |  ${minutes} min total`, '',
   ...(notRun.length ? [`Not run: ${notRun.length} task(s) excluded from the score because setup failed before the agent started (${notRun.map((r) => r.id).join(', ')}). Re-run them.`, ''] : []),
   ...(contaminated.length ? [`Dependency environment: ${contaminated.length} task(s) not CLEAN (${contaminated.map((r) => `${r.id} ${r.env}`).join(', ')}); these never count as PASS. Details in results.json (env, envDetail, graderPass).`, ''] : []),
@@ -635,7 +670,7 @@ fs.writeFileSync(path.join(outDir, 'results.json'), JSON.stringify(results, null
 // identical by construction). Two runs with the same value saw byte-identical agent inputs after normalization.
 const fpTasks = results.filter((r) => r.fingerprint).map((r) => ({ id: r.id, ...r.fingerprint }));
 if (fpTasks.length) {
-  const runFp = sha256(JSON.stringify(fpTasks.map(({ id, agent_config, agent_args, env_names, env_values, jcode_sha256, model: m, task_prompt, tools_root, baseline: b }) => [id, agent_config, agent_args, env_names, env_values, jcode_sha256, m, task_prompt, tools_root, b])));
+  const runFp = sha256(JSON.stringify(fpTasks.map(({ id, agent_config, agent_args, env_names, env_values, jcode_sha256, model: m, task_prompt, tools_root, baseline: b, model_server: ms }) => [id, agent_config, agent_args, env_names, env_values, jcode_sha256, m, task_prompt, tools_root, b, ms])));
   fs.writeFileSync(path.join(outDir, 'effective-config.json'), JSON.stringify({ run: runId, mode: fsContain ? 'contained' : 'control-equivalent', jcode: jcodeIdentity(), baseline: baselineSha, env: envLine, run_fingerprint: runFp, tasks: fpTasks }, null, 2));
   console.log(`Effective-config fingerprint: ${runFp}`);
 }

@@ -3,6 +3,12 @@
   "node": "v26.7.0",
   "node_sha256": "e921fe5307e29bf6fd00000dd594356affd3a7b044e52720c7f10decbdc305b9",
   "node_staged_sha256": "2b0b62b0d72e96894c72aa8e621ed3cd77e86d5bcf206ac011e286ef8a960ad6",
+  "model_server": {
+    "ollama_version": "0.34.4",
+    "models": {
+      "hermes-local-32k": "1ef2c71ed2065896b080104a0499a15b320f9ea3f9049bacdadc42e71630b60f"
+    }
+  },
   "packages": {
     "@agent-creator/agent": "0.1.0",
     "@agent-creator/protocol": "0.1.0",

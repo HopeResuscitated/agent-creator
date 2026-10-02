@@ -39,7 +39,7 @@ fpcheck() {
   "$NODE_BIN" -e "
     const fs=require('fs');
     const a=JSON.parse(fs.readFileSync(process.argv[1],'utf8')), b=JSON.parse(fs.readFileSync(process.argv[2]+'/effective-config.json','utf8'));
-    const keys=['agent_config','agent_args','env_names','env_values','jcode_sha256','model','task_prompt','tools_root','baseline'];
+    const keys=['agent_config','agent_args','env_names','env_values','jcode_sha256','model','task_prompt','tools_root','baseline','model_server'];
     const A=Object.fromEntries(a.tasks.map(t=>[t.id,t])); let bad=0;
     for (const t of b.tasks) { const diff=keys.filter(k=>A[t.id]?.[k]!==t[k]); if(diff.length) bad++; console.log(t.id, diff.length? 'MISMATCH '+diff.join(','):'match ref'); }
     console.log('mode='+b.mode+' tasks='+b.tasks.length+' mismatches='+bad); process.exit(bad?1:0);
