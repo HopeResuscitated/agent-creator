@@ -35,6 +35,13 @@
 #                  with no AppContainer, no ACL grants and no broker (the agent dials its endpoint directly).
 #                  Makes containment the only experimental variable. Refuses -WritableRoot and -ModelUpstream.
 #
+#   -SimulateWaitFailure  TEST ONLY: make waiting for the started agent fail, to exercise the post-launch failure
+#                  path (evals/bench wrapper checks). Never passed by run.ts.
+#
+# Exit codes: 0 agent ran and its process tree is proven dead; 3 tree NOT proven dead; 4 setup failed
+# BEFORE the agent started (nothing ran; runner: SETUP_FAILED, excluded from the score); 5 the agent was
+# started but its result could not be read (e.g. GetExitCodeProcess failed), tree proven dead.
+#
 # Before launching, the wrapper prints the agent's effective environment once as
 #   [run-in-job ...] effective-env-b64=<base64 UTF-8 JSON {name: value}>
 # so the runner can fingerprint it. Windows itself further overrides TEMP/TMP inside an AppContainer.
@@ -50,7 +57,7 @@
 # network access) and inherits this script's stdio, so run.ts still sees the agent's output. The sandbox
 # DACL is read before the grant and written back afterwards, and the container profile is deleted on
 # every exit path.
-param([Parameter(Mandatory = $true)][string]$Command, [string]$ArgsB64 = '', [int]$TimeoutMs = 900000, [string]$WritableRoot = '', [string]$AppContainerName = '', [string]$JcodeHome = '', [string]$ToolsRoot = '', [string]$ModelUpstream = '', [string]$ModelPipe = '', [int]$RelayPort = 18437, [switch]$UncontainedControl)
+param([Parameter(Mandatory = $true)][string]$Command, [string]$ArgsB64 = '', [int]$TimeoutMs = 900000, [string]$WritableRoot = '', [string]$AppContainerName = '', [string]$JcodeHome = '', [string]$ToolsRoot = '', [string]$ModelUpstream = '', [string]$ModelPipe = '', [int]$RelayPort = 18437, [switch]$UncontainedControl, [switch]$SimulateWaitFailure)
 $ErrorActionPreference = 'Stop'
 function Note($m) { [Console]::Error.WriteLine("[run-in-job $([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())] $m") }
 # ABS-2: write a DACL back from its exact SDDL form (access section only), so a grant can be undone precisely.
@@ -216,11 +223,8 @@ public static class EvalJob {
             CloseHandle(h);
             return code;
           }
-          // Launch = Start + WaitExit (the ordinary single-agent path).
-            public static uint Launch(string exe, string args, string cwd, IntPtr env, int timeoutMs, out uint pid, out bool timedOut) {
-              IntPtr h; pid = Start(exe, args, cwd, env, out h);
-              return WaitExit(h, timeoutMs, out timedOut);
-            }
+          // (No combined Start+Wait helper: the caller must distinguish a launch failure, before the agent exists,
+          // from a wait failure after it started; see the exit-code contract in the header.)
           // True when a process started with Start() has already exited (non-blocking).
           public static bool HasExited(IntPtr h) { return WaitForSingleObject(h, 0) == 0; }
           // Terminate a process this script started (the in-container relay) and close its handle.
@@ -607,14 +611,16 @@ if ($useAC -or $UncontainedControl) {
 }
 
 $agentExit = 'not-started'
+# Exit 4 means "the agent never started" (the runner excludes the task from the score). Anything that fails
+# AFTER the agent process exists (waiting for it, reading its exit code) is recorded here instead, the normal
+# cleanup + drain still runs, and the wrapper exits 5 (tree proven dead, agent result unknown) or 3.
+$postLaunchError = ''
 if ($useAC) {
-  $agentPid = 0; $acTimedOut = $false
+  $agentPid = 0; $acTimedOut = $false; $agentHandle = [IntPtr]::Zero
   try {
     $argline = (($argv | ForEach-Object { [EvalJob]::Quote([string]$_) }) -join ' ')
     Note "launching under appcontainer: exe=$exe cwd=$WritableRoot"
-    $code = [EvalJob]::Launch($exe, $argline, $WritableRoot, [IntPtr]::Zero, $TimeoutMs, [ref]$agentPid, [ref]$acTimedOut)
-    $agentExit = if ($acTimedOut) { 'timeout' } else { $code }
-    Note "agent pid=$agentPid exe=$exe"
+    $agentPid = [EvalJob]::Start($exe, $argline, $WritableRoot, [IntPtr]::Zero, [ref]$agentHandle)
   } catch {
       Note "launch failed, agent not started: $($_.Exception.Message)"
       Stop-ModelAccess
@@ -622,6 +628,16 @@ if ($useAC) {
       Restore-Sandbox
       exit 4
     }
+  Note "agent pid=$agentPid exe=$exe"
+  try {
+    if ($SimulateWaitFailure) { throw "GetExitCodeProcess failed: simulated (-SimulateWaitFailure)" }
+    $code = [EvalJob]::WaitExit($agentHandle, $TimeoutMs, [ref]$acTimedOut)
+    $agentExit = if ($acTimedOut) { 'timeout' } else { $code }
+  } catch {
+    $postLaunchError = $_.Exception.Message
+    $agentExit = 'unknown'
+    Note "agent wait failed after launch (agent was running; draining the job): $postLaunchError"
+  }
 } else {
   try {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -632,8 +648,14 @@ if ($useAC) {
   Note "agent pid=$($proc.Id) exe=$exe"
 }
 if (-not $useAC) {
-  $timedOut = -not $proc.WaitForExit($TimeoutMs)
-  $agentExit = if ($timedOut) { 'timeout' } else { $proc.ExitCode }
+  try {
+    if ($SimulateWaitFailure) { throw "WaitForExit failed: simulated (-SimulateWaitFailure)" }
+    $timedOut = -not $proc.WaitForExit($TimeoutMs)
+    $agentExit = if ($timedOut) { 'timeout' } else { $proc.ExitCode }
+  } catch {
+    $postLaunchError = $_.Exception.Message; $agentExit = 'unknown'; $timedOut = $false
+    Note "agent wait failed after launch (agent was running; draining the job): $postLaunchError"
+  }
 } else {
   $timedOut = $acTimedOut
 }
@@ -650,4 +672,5 @@ try {
 Note "agent exit=$agentExit timedOut=$timedOut killed=$killed members-left=$($left - 1)"
 if (-not $ok) { Note 'process tree NOT proven dead'; exit 3 }
 Note 'process tree proven dead'
+if ($postLaunchError) { Note "agent result unknown (failure after launch): $postLaunchError"; exit 5 }
 exit 0

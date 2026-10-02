@@ -428,7 +428,7 @@ function jcodeIdentity() {
  */
 function relayPort(): number { return 20000 + crypto.randomInt(0, 20000); }
 
-function runAgent(task: Task, ws: string, toolsRoot: string): { seconds: number; exit: number; transcript: string; contained: boolean; setupFailed?: boolean; containDetail: string; home: string; fingerprint?: Record<string, string> } {
+function runAgent(task: Task, ws: string, toolsRoot: string): { seconds: number; exit: number; transcript: string; contained: boolean; setupFailed?: boolean; statusUnknown?: boolean; containDetail: string; home: string; fingerprint?: Record<string, string> } {
   const t0 = Date.now();
   const home = `${ws}.agent-home`;
   if (agent === 'none') return { seconds: 0, exit: 0, transcript: '', contained: true, containDetail: '', home };
@@ -471,8 +471,12 @@ function runAgent(task: Task, ws: string, toolsRoot: string): { seconds: number;
   // run-in-job.ps1 exits 4 only from fail-closed setup, before the agent is started: nothing ran, so it is
   // neither an unsafe process tree nor a capability failure.
   const setupFailed = r.status === 4 && !r.error;
+  // exit 5: the agent was started (it consumed the attempt) and its tree is proven dead, but the wrapper could
+  // not read its result. Not graded, but counted: unlike exit 4, something ran.
+  const statusUnknown = r.status === 5 && !r.error;
   const containDetail = contained ? ''
     : setupFailed ? 'containment/agent setup failed, agent not started (run-in-job exit=4)'
+      : statusUnknown ? 'agent started but its result could not be read after launch; process tree proven dead (run-in-job exit=5)'
       : `agent process tree not proven dead (run-in-job exit=${r.status ?? 'none'}${r.error ? `, ${r.error.message}` : ''})`;
   // Effective-config fingerprint: every input the agent sees, normalized for per-task paths and the endpoint.
   // No fingerprint without the wrapper's effective-env line: an empty env would hash identically across failures.
@@ -492,7 +496,7 @@ function runAgent(task: Task, ws: string, toolsRoot: string): { seconds: number;
     };
     fs.writeFileSync(`${home}.effective-config.json`, JSON.stringify({ toml: tomlNorm, args: JSON.parse(argsNorm), env: envNorm, fingerprint }, null, 2));
   }
-  return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout ?? ''}\n${r.stderr ?? ''}${r.error ? `\n[runner] ${r.error.message}` : ''}`, contained, setupFailed, containDetail, home, fingerprint };
+  return { seconds: Math.round((Date.now() - t0) / 1000), exit: r.status ?? -1, transcript: `${r.stdout ?? ''}\n${r.stderr ?? ''}${r.error ? `\n[runner] ${r.error.message}` : ''}`, contained, setupFailed, statusUnknown, containDetail, home, fingerprint };
 }
 
 async function grade(task: Task, ws: string) {
@@ -553,10 +557,12 @@ for (const task of selected) {
   // Dependency integrity before grading: never grade against the agent's node_modules. If the agent's
   // process tree was not proven dead, a survivor could still change the sandbox: skip the check and grading.
   // SETUP_FAILED: the agent never started, so the task is not graded and is excluded from the score.
+  // AGENT_STATUS_UNKNOWN: the agent ran but its result was lost after launch: not graded, counted as a FAIL.
   const envStatus: { env: string; envDetail: string } = run.contained ? checkAndRestoreEnv(ws)
     : run.setupFailed ? { env: 'SETUP_FAILED', envDetail: run.containDetail }
+      : run.statusUnknown ? { env: 'AGENT_STATUS_UNKNOWN', envDetail: run.containDetail }
       : { env: 'UNSAFE_PROCESS_TREE', envDetail: run.containDetail };
-  const g = envStatus.env === 'ENV_RESTORE_FAILED' || envStatus.env === 'UNSAFE_PROCESS_TREE' || envStatus.env === 'SETUP_FAILED' ? { pass: false, detail: `not graded: ${envStatus.envDetail}` } : await grade(task, ws);
+  const g = envStatus.env === 'ENV_RESTORE_FAILED' || envStatus.env === 'UNSAFE_PROCESS_TREE' || envStatus.env === 'SETUP_FAILED' || envStatus.env === 'AGENT_STATUS_UNKNOWN' ? { pass: false, detail: `not graded: ${envStatus.envDetail}` } : await grade(task, ws);
   // A contaminated environment is never counted as a PASS; the grader's verdict (graded on
   // the restored golden tree) is kept alongside as graderPass.
   const pass = g.pass && envStatus.env === 'CLEAN';
