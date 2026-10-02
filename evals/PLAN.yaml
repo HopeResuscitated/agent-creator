@@ -3,7 +3,7 @@
 project: hermes-jcode-contained-agent
 repo: "C:/Users/cierra/Desktop/agent creator"
 branch: cierra-wip-2026-09-29      # local only, never pushed
-head: 14f50f2                      # as of 2026-10-02
+head: bab3a17                      # as of 2026-10-02 (14f50f2 node pin, 94ff963 *.sh LF, bab3a17 meter abort)
 updated: 2026-10-02
 
 architecture: |
@@ -43,7 +43,10 @@ evidence:
 
 phases:
   A0_runner_node:
-    status: committed (14f50f2) - confirm from Hermes report that reduced.sh, t05x6.sh, probe.sh were dry-run
+    status: done (14f50f2) - verified: 4 launches (git-bash/PowerShell x contained/control) identical fingerprint 4dcba4e1;
+            reduced.sh run end to end (R-C contained 6/8, R-D control 5/8, 8/8 per-task fingerprints match).
+            t05x6.sh and probe.sh NOT yet run end to end (syntax-checked only).
+    found_during_A0: "meter.mjs kept Ollama generating after a killed agent (709 s dead compute billed to the next task); fixed bab3a17"
     accept: "git-bash and PowerShell launches give identical fingerprints (all 9 per-task fields)"
   A0b_model_server_pin:
     status: todo

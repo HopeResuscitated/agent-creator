@@ -3,7 +3,7 @@
 Updated 2026-10-02. Full plan and status: `evals/PLAN.yaml`.
 
 ## Where we are
-- Containment is proven (all invariants hold; decision rule passed). Harness hardened through commit `14f50f2`.
+- Containment is proven (all invariants hold; decision rule passed). Harness hardened through commit `bab3a17` (runner node pinned; meter aborts upstream on agent kill).
 - Current phase: finishing the foundation, A0 (committed) -> **A0b -> A1 -> A2 -> B -> hardware decision -> C**.
 - Main open problem: the model sometimes emits malformed tool calls; Ollama rejects them and jcode quits the task.
 
