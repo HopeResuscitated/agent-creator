@@ -68,13 +68,15 @@ if ((fsContain || controlEquivalent) && !modelUpstream) {
   process.exit(2);
 }
 // Must match what the broker in run-in-job.ps1 accepts: a literal 127.x.x.x address (no hostnames such as
-// 'localhost', which IPAddress.Parse rejects) and a port in 1..65535.
+// 'localhost', which IPAddress.Parse rejects) and a port in 1..65535. Octets must be canonical decimal: .NET's
+// IPAddress.Parse reads a leading-zero octet as OCTAL ('127.0.0.010' is 127.0.0.8), so a leading zero would
+// silently point the broker at a different endpoint than the one written in the fingerprinted config.
 const upstreamOk = (u: string) => {
-  const m = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):(\d{1,5})$/.exec(u);
+  const m = /^127\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2}):(\d{1,5})$/.exec(u);
   return !!m && m.slice(1, 4).every((o) => Number(o) <= 255) && Number(m[4]) >= 1 && Number(m[4]) <= 65535;
 };
 if (modelUpstream && !upstreamOk(modelUpstream)) {
-  console.error(`--model-upstream must be a literal loopback address 127.x.x.x:port (port 1-65535), got '${modelUpstream}'`);
+  console.error(`--model-upstream must be a literal loopback address 127.x.x.x:port (decimal octets without leading zeros, port 1-65535), got '${modelUpstream}'`);
   process.exit(2);
 }
 // Sandbox starting state = a frozen git commit, never the live working tree, so

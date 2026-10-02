@@ -285,6 +285,9 @@ public static class ModelBroker {
   public static void Start(string pipe, string acSid, string host, int port, string log) {
     logPath = log;
     var ip = IPAddress.Parse(host);
+    // Canonical dotted decimal only: IPAddress.Parse reads '127.0.0.010' as 127.0.0.8 (octal) and '127.1' as
+    // 127.0.0.1, so a non-canonical spelling would dial a different endpoint than the one the caller named.
+    if (ip.ToString() != host) throw new Exception("non-canonical upstream address refused: " + host + " (parses as " + ip + ")");
     if (!IPAddress.IsLoopback(ip)) throw new Exception("non-loopback upstream refused: " + host);
     if (port < 1 || port > 65535) throw new Exception("upstream port out of range: " + port);
     new SecurityIdentifier(acSid);
