@@ -1,0 +1,104 @@
+# Contained jcode agent: build plan and status. Single source of truth for picking work back up.
+# Update `status` fields as phases complete. Evidence archive: C:/Users/cierra/hermes-bench-archive
+project: hermes-jcode-contained-agent
+repo: "C:/Users/cierra/Desktop/agent creator"
+branch: cierra-wip-2026-09-29      # local only, never pushed
+head: 14f50f2                      # as of 2026-10-02
+updated: 2026-10-02
+
+architecture: |
+  evals/bench/suite.sh -> evals/run.ts (stages patched node/npm/relay, agent home, fingerprint)
+    -> evals/tools/run-in-job.ps1 (Job Object, AppContainer, ACL grants, fixed env + PATH)
+      -> jcode (contained) -> model-relay.mjs 127.0.0.1:<rand> -> named pipe (DACL: user + this run's AC SID, Low IL)
+      -> ModelBroker (trusted side, one canonical 127.x upstream) -> meter.mjs 127.0.0.2:11439
+      -> Ollama 127.0.0.1:11434 -> hermes-local-32k (CPU, ~7 tok/s)
+  Monitors: watch.ps1 (watchdog), fpcmp.mjs (repo + ~/.jcode integrity), analyze/classify.mjs
+  Control mode (--no-contain-unsafe): same config/env/tools, no AppContainer/ACL/broker.
+
+invariants:            # must hold on every contained run
+  FS-1:   "agent writes only sandbox + agent home"
+  NET-1:  "no direct network; only the in-container relay is reachable"
+  NET-2:  "broker dials exactly one canonical loopback upstream"
+  ENV-1:  "agent env is a fixed allow-list; no inherited secrets"
+  PROC-1: "process tree proven dead after every run"
+  ACL-1:  "ACLs restored and container profile deleted on every exit path"
+  INT-1:  "repo and ~/.jcode unchanged"
+  DET-1:  "same inputs -> identical fingerprint from any shell"
+
+status_contract:       # run-in-job.ps1 exit -> scoring
+  0: "graded (CLEAN / ENV_RESTORE_FAILED)"
+  3: "UNSAFE_PROCESS_TREE - not graded, counts as fail"
+  4: "SETUP_FAILED - agent never started, excluded from score"
+  5: "AGENT_STATUS_UNKNOWN - not graded, counts as fail"
+
+known_limits_contained: ["del/erase denied (rmdir /s, fs.rmSync work)", "no taskkill/tasklist (node --test ~+9 s)",
+                         "no python", "no network (npm install fails)"]
+
+evidence:
+  cycle6_C1_full: "9/18 in 311 min"
+  cycle7_root_cause: "model emits <parameter> closed by </function>; Ollama qwen tool parser rejects it ->
+                      HTTP 500 if first output, else HTTP 200 stream ending with no finish/usage; 14/393 requests"
+  cycle7_T05: "2/5 contained, 2/5 control; every failure ends on an incomplete stream, every pass is complete"
+  decision_rule: "PASSED (pooled). Holding before infrastructure BY CHOICE: same-mode disagreement is 41%"
+
+phases:
+  A0_runner_node:
+    status: committed (14f50f2) - confirm from Hermes report that reduced.sh, t05x6.sh, probe.sh were dry-run
+    accept: "git-bash and PowerShell launches give identical fingerprints (all 9 per-task fields)"
+  A0b_model_server_pin:
+    status: todo
+    do: ["disable Ollama auto-update during benchmarks", "record ollama --version + model digest in baseline.txt and fingerprint",
+         "gate fails closed if either changes", "copy gate reference artifacts out of %TEMP% into evals/results or the archive"]
+  A1_investigate:
+    status: todo
+    do: "how jcode handles HTTP 500 and streams with no finish_reason/usage; retried? where max_retries applies. No code changes."
+  A2_fix:
+    status: todo (needs approval)
+    options_ranked: ["jcode-native retry of both cases", "trusted-side retry shim in meter position (joins tested set)",
+                     "model-side: tool-turn temperature / chat template"]
+    constraints: ["retry cap 2-3 for this class", "retry only when nothing executed", "no duplicated partial text",
+                  "no new network path; broker upstream unchanged"]
+  B_validate:
+    status: todo
+    do: ["probe.sh malformed cases", "5 contained + 5 control T05", "child-test 10/10, probe 20/20, byte tests 12/12 + 9/9"]
+    accept: "no T05 failure ends on an unrecovered incomplete stream; retries bounded and logged"
+  H_hardware:          # must be decided BEFORE C; C must run on final hardware + model
+    status: open decision
+    question: "local NVIDIA GPU (preferred, no egress) vs remote inference (needs tunnel-to-loopback + egress policy)"
+    quant_trial: "Q4_K_M vs Q8_0; metric = malformed tool-call rate over >=300 requests, plus tok/s; pick ONE for all evals"
+  C_rebaseline:
+    status: todo
+    tasks: [T13, T14, T17, T04, T05, T03, T08, T01]
+    design: "3 reps per mode, alternating; paired analysis across tasks; pre-registered before running"
+    primary_metrics: [incomplete_stream_rate, retry_recovery_rate, invariants]
+    secondary_metrics: [pass_rate_with_spread, minutes, structured_tool_call_pct]
+    decision_rule: ["invariants hold every contained run", "fingerprints match within mode",
+                    "no contained-only failure with a containment-specific error",
+                    "contained-vs-control disagreement <= contained-vs-contained", "same-mode disagreement well below 41%"]
+  D_gate: "foundation complete -> infrastructure phase"
+
+infrastructure_phase:  # one change at a time, each followed by an 8-task contained + control re-check
+  E1: "contained 'work on my folder' command (replaces running jcode uncontained)"
+  E2: "LiteLLM gateway - PRECONDITION: egress policy (allowed providers, no insurance/student data to cloud)"
+  E3: "Langfuse tracing - self-hosted"
+  E4: "MCP tool layer - each server reviewed, trusted side only"
+  E5: "Evals: promptfoo + bench as regression gate"
+  E6: "RAG: sentence-transformers + one local vector store"
+  candidates: { jev_typesafe: "router/triage decisions; trusted side; benchmark first" }
+later: ["orchestrator (planning/routing/state/HITL)", "agents: college OS, inbox chief-of-staff, insurance, research, agent factory",
+        "chat UI: data/spec-chat-ui-*.md - blocked on roadmap Step 2; spec has 10 open gaps (see HANDOFF.md)"]
+
+rejected_ideas:        # reviewed 2026-10-02; do not re-propose without new evidence
+  - "warm pool / pre-applied ACLs (breaks ACL-1 and cross-run isolation)"
+  - "shared broker across containers (weakens per-run pipe identity)"
+  - "parallel runs on CPU (no throughput gain); parallel probes"
+  - "q4-for-dev / q8-for-baseline auto routing (results don't transfer)"
+  - "parallel tool calls before A2; linked/junction tools staging (node.exe is patched); git-status fingerprints; mtime digest cache"
+  - "adaptive CI stopping with 2-3 reps (cannot reach equivalence)"
+
+operating_rules:
+  - "fresh Hermes session per prompt; Sonnet for mechanical work, Opus for judgment"
+  - "long runs launched by the user in PowerShell; Hermes reads only final logs; no polling"
+  - "one benchmark runner at a time"
+  - "Hermes compression model must be a trusted provider (was a free OpenRouter model)"
+  - "repo AGENTS.md is an agent input (stale: says LM Studio/Omnicoder) - update deliberately before C"
