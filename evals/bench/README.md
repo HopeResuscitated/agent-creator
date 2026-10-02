@@ -11,10 +11,13 @@ binary, e.g. "$NODE_BIN" evals/tools/contained-child-test.mjs.
 
 Benchmark runs
   suite.sh --out <dir> <label> <contain|control> [run.ts args]   one run + meter + watchdog + fingerprints,
-                                                                   then analysis-<label>.txt / classify-<label>.txt
+                                                                   then analysis-<label>.txt / classify-<label>.txt;
+                                                                   meter output in ev-<label>/meter.out; exit 6 if the
+                                                                   meter died during the run (the run is not evidence)
   reduced.sh --out <dir> [--tasks ..] [--ref f] [--expect-head sha] <label>:<mode> ...
                                                                    gated sequence of suite.sh runs; with --ref, stops
-                                                                   when a task's effective-config fingerprint differs
+                                                                   when a task's effective-config fingerprint differs,
+                                                                   and (exit 6) when a run's meter died
   t05x6.sh --out <dir> [...]                                       T05 x 3 contained + 3 control, interleaved
   JCODE_BIN=<pinned jcode.exe> pins the agent binary for all of the above.
 

@@ -28,7 +28,7 @@ rm -rf "$EV"; mkdir -p "$EV" "$OUT/outside"
 ( cd "$REPO" && git rev-parse HEAD > "$EV/head.txt" && git status --short > "$EV/status-pre.txt" )
 JARGS=()
 if [ -n "${JCODE_BIN:-}" ]; then sha256sum "$JCODE_BIN" > "$EV/jcode-sha.txt"; JARGS=(--jcode-bin "$JCODE_BIN"); else echo "JCODE_BIN unset: run.ts resolves jcode on PATH (not pinned)" | tee "$EV/jcode-sha.txt"; fi
-METER_LOG="$WEV/meter.jsonl" METER_RAW="$WEV/raw" METER_LISTEN=$METER_LISTEN METER_UPSTREAM=$METER_UPSTREAM "$NODE_BIN" "$WBENCH/meter.mjs" & MPID_BASH=$!
+METER_LOG="$WEV/meter.jsonl" METER_RAW="$WEV/raw" METER_LISTEN=$METER_LISTEN METER_UPSTREAM=$METER_UPSTREAM "$NODE_BIN" "$WBENCH/meter.mjs" > "$EV/meter.out" 2>&1 & MPID_BASH=$!
 sleep 2
 MPID=$(powershell.exe -NoProfile -Command "(Get-NetTCPConnection -LocalAddress $MHOST -LocalPort $MPORT -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess" | tr -d '\r')
 echo "meter pid=$MPID"
@@ -42,6 +42,9 @@ EXTRA=()
 [ "$MODE" = control ] && EXTRA=(--no-contain-unsafe)
 ( cd "$REPO" && "$NODE_BIN" evals/run.ts --agent jcode --provider ollama --model "$MODEL" --model-upstream "$METER_LISTEN" "${JARGS[@]}" "${EXTRA[@]}" "$@" ) 2>&1 | tee "$EV/suite.out"
 date -Iseconds > "$EV/suite-end.txt"
+# The meter is every task's model upstream: if it died mid-run, every later task was graded against a refused
+# connection (a harness failure, not a model result). Say so loudly; the run is not evidence.
+METER_ALIVE=1; kill -0 $MPID_BASH 2>/dev/null || METER_ALIVE=0
 touch "$EV/STOP"; sleep 15
 kill $MPID_BASH 2>/dev/null; powershell.exe -NoProfile -Command "Stop-Process -Id $MPID -Force -ErrorAction SilentlyContinue" 2>/dev/null
 wait $WPID 2>/dev/null
@@ -58,4 +61,5 @@ if [ -n "$RUNDIR" ]; then
   "$NODE_BIN" "$WBENCH/classify.mjs" --run "$RUNDIR" --out "$WOUT/classify-$LABEL.txt" >/dev/null && echo "classify: $WOUT/classify-$LABEL.txt"
   echo "results: $RUNDIR"
 fi
+if [ $METER_ALIVE = 0 ]; then echo "METER DIED DURING THE RUN (see $EV/meter.out): results are NOT evidence"; tail -5 "$EV/meter.out"; echo SUITE-DONE; exit 6; fi
 echo SUITE-DONE
