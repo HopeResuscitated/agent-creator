@@ -23,7 +23,8 @@
 //                                at --model-upstream, so containment is the only experimental variable.
 //   --control-user-config        with --no-contain-unsafe: use the user's own ~/.jcode config instead (old control)
 //   --jcode-bin <path>           the jcode executable to run (default: `jcode` on PATH). Its version and sha256
-//                                are recorded in baseline.txt and effective-config.json.
+//                                are recorded in baseline.txt and effective-config.json; its sha256 must equal
+//                                jcode_sha256 in evals/baseline-env.json (--allow-jcode-drift: debug override).
 //
 // Contained runs and the control write effective-config.json: per-task sha256 of the normalized agent config,
 // arguments, environment (names and values), jcode binary, model, task prompt, staged tools and baseline, plus a
@@ -164,7 +165,7 @@ if (argv.includes('--write-env')) {
   // refuses and prints the new value to pin.
   const prevPin = fs.existsSync(ENV_FILE) ? JSON.parse(fs.readFileSync(ENV_FILE, 'utf8')) : {};
   const prevStaged = prevPin.node_staged_sha256;
-  fs.writeFileSync(ENV_FILE, JSON.stringify({ baseline, node: process.version, node_sha256: crypto.createHash('sha256').update(fs.readFileSync(process.execPath)).digest('hex'), node_staged_sha256: prevStaged, model_server: prevPin.model_server, packages: envPackages() }, null, 2) + '\n');
+  fs.writeFileSync(ENV_FILE, JSON.stringify({ baseline, node: process.version, node_sha256: crypto.createHash('sha256').update(fs.readFileSync(process.execPath)).digest('hex'), node_staged_sha256: prevStaged, model_server: prevPin.model_server, jcode_sha256: prevPin.jcode_sha256, packages: envPackages() }, null, 2) + '\n');
   console.log(`wrote ${ENV_FILE}`); process.exit(0);
 }
 const drift = envDrift();
@@ -619,6 +620,28 @@ const only = onlyFlag ? new Set(onlyFlag.split(',')) : undefined;
 const selected = tasks.filter((t) => !only || only.has(t.id));
 const runId = `${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}_${agent === 'none' ? 'baseline' : agent === 'reference' ? 'reference' : `${provider}-${model}`}`.replace(/[^\w.-]/g, '_');
 const root = path.join(os.tmpdir(), 'agent-evals', runId);
+/**
+ * Agent-binary gate (PLAN A2). jcode is the system under test; a different build (e.g. the pre-A2 binary
+ * without the incomplete-stream retry) measures something else. For jcode runs the binary's sha256 must
+ * equal jcode_sha256 in evals/baseline-env.json; otherwise refuse (exit 2) before the results dir, staging
+ * or any agent start. The hash was already in every task's fingerprint; this makes a wrong binary a refusal
+ * instead of a fingerprint mismatch discovered afterwards. It sits here (after the early-exit modes) because
+ * jcodeIdentity() and its helpers are defined above. --allow-jcode-drift is a recorded debugging override.
+ */
+const allowJcodeDrift = argv.includes('--allow-jcode-drift');
+let jcodeDrift = '';
+if (agent === 'jcode') {
+  const want: string | undefined = (fs.existsSync(ENV_FILE) ? JSON.parse(fs.readFileSync(ENV_FILE, 'utf8')) : {}).jcode_sha256;
+  const id = jcodeIdentity();
+  const bad = !want ? 'no pinned jcode_sha256 in evals/baseline-env.json'
+    : id.sha256 !== want ? `${id.path} sha256 ${id.sha256.slice(0, 16)}... != pinned ${want.slice(0, 16)}...` : '';
+  if (bad) {
+    if (!allowJcodeDrift) { console.error(`REFUSING TO RUN: agent binary is not the pinned jcode (${bad}).\n  Pass --jcode-bin <pinned jcode.exe> (evals/bench: JCODE_BIN=...), or pin a deliberate change in jcode_sha256 in evals/baseline-env.json and re-baseline, or pass --allow-jcode-drift for debugging only (recorded, not comparable).`); process.exit(2); }
+    console.warn(`\n*** WARNING --allow-jcode-drift: ${bad}. Results are NOT comparable evidence. ***\n`);
+    jcodeDrift = ` DRIFT: ${bad}`;
+  }
+}
+
 const outDir = path.join(EVALS, 'results', runId);
 fs.mkdirSync(outDir, { recursive: true });
 // Stage node + the relay script once per run (never per task): the contained agent must be able to run
@@ -627,7 +650,7 @@ const toolsStage = fsContain || controlEquivalent ? stageTools(root) : { dir: ''
 const toolsRoot = toolsStage.dir;
 
 console.log(`Run ${runId}: ${selected.length} task(s), agent=${agent}${agent === 'none' ? '' : ` ${provider}/${model}`}, baseline=${baseline} (${baselineSha.slice(0, 10)})`);
-const jcodeLine = agent === 'jcode' ? `${jcodeIdentity().version} sha256=${jcodeIdentity().sha256} path=${jcodeIdentity().path}` : 'n/a';
+const jcodeLine = agent === 'jcode' ? `${jcodeIdentity().version} sha256=${jcodeIdentity().sha256} path=${jcodeIdentity().path}${jcodeDrift}` : 'n/a';
 if (agent === 'jcode') console.log(`jcode: ${jcodeIdentity().version} sha256=${jcodeIdentity().sha256.slice(0, 16)} path=${jcodeIdentity().path}`);
 console.log(fsContain
   ? `Containment: ON — AppContainer + sandbox ACL + agent home + pipe broker, upstream fixed to ${modelUpstream}, tools staged at ${toolsRoot}\nStaged tools: ${toolsStage.detail}`

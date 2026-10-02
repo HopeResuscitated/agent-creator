@@ -19,7 +19,8 @@ Benchmark runs
                                                                    when a task's effective-config fingerprint differs,
                                                                    and (exit 6) when a run's meter died
   t05x6.sh --out <dir> [...]                                       T05 x 3 contained + 3 control, interleaved
-  JCODE_BIN=<pinned jcode.exe> pins the agent binary for all of the above.
+  JCODE_BIN=<pinned jcode.exe> selects the agent binary for all of the above; run.ts refuses unless its
+  sha256 equals jcode_sha256 in evals/baseline-env.json (current pin: C:\Users\cierra\jcode-evalpin-a2-bin\jcode.exe).
 
 Evidence and analysis
   meter.mjs        trusted-side HTTP meter between broker/agent and Ollama (METER_LOG, METER_RAW, METER_LISTEN, METER_UPSTREAM)

@@ -3,6 +3,7 @@
   "node": "v26.7.0",
   "node_sha256": "e921fe5307e29bf6fd00000dd594356affd3a7b044e52720c7f10decbdc305b9",
   "node_staged_sha256": "2b0b62b0d72e96894c72aa8e621ed3cd77e86d5bcf206ac011e286ef8a960ad6",
+  "jcode_sha256": "f76eff118ae42e9876727095c100420f485e7ea7a8904d3dd62e93f55beaf8e3",
   "model_server": {
     "ollama_version": "0.34.4",
     "models": {
