@@ -24,7 +24,7 @@ const w = (o) => fs.appendFileSync(LOG, JSON.stringify(o) + '\n');
 http.createServer((req, res) => {
   const id = ++n; const t0 = Date.now(); const reqBody = [];
   const ev = []; const mark = (e) => ev.push([e, Date.now() - t0]);
-  let upDone = false;
+  let upDone = false, clientGone = false;
   req.on('aborted', () => mark('client_req_aborted'));
   req.on('close', () => mark('client_req_close'));
   res.on('close', () => mark(upDone ? 'client_res_close' : 'client_res_close_BEFORE_upstream_done'));
@@ -74,15 +74,25 @@ http.createServer((req, res) => {
         const tEnd = at(/^upstream_(end|aborted|error)/), tCli = at(/^client_(req_aborted|res_close_BEFORE)/);
         const firstCloser = tCli !== undefined && (tEnd === undefined || tCli < tEnd) ? 'client'
           : ev.some(([e]) => /^upstream_(aborted|error)/.test(e)) ? 'upstream(abnormal)' : 'upstream(clean end)';
-        w({ id, t: new Date(t0).toISOString(), path: req.url, model, stream, msgs: nMsgs, tools: nTools, status: ur.statusCode, ttfb_ms: ttfb, total_ms: Date.now() - t0, bytes, chunks, tool_call_deltas: toolDeltas, tool_names: [...toolNames], text_toolcall: /<function=|<tool_call>/.test(content), content_chars: content.length, finish, usage, done_marker: done, last_line: lastLine, first_closer: firstCloser, events: ev });
+        w({ id, t: new Date(t0).toISOString(), path: req.url, model, stream, msgs: nMsgs, tools: nTools, status: ur.statusCode, ttfb_ms: ttfb, total_ms: Date.now() - t0, bytes, chunks, tool_call_deltas: toolDeltas, tool_names: [...toolNames], text_toolcall: /<function=|<tool_call>/.test(content), content_chars: content.length, finish, usage, done_marker: done, last_line: lastLine, first_closer: firstCloser, ...(clientGone ? { client_gone: true } : {}), events: ev });
       };
       ur.on('end', () => { upDone = true; mark('upstream_end'); res.end(); });
       ur.on('aborted', () => { upDone = true; mark('upstream_aborted'); try { res.end(); } catch { /* */ } });
       ur.on('error', (e) => { mark(`upstream_error:${e.code || e.message}`); });
       ur.on('close', () => { mark('upstream_close'); finalize(); });
     });
+    // The client went away before the upstream finished (agent killed at its task timeout, relay/broker torn
+    // down): abort the upstream request too. Without this the meter, unlike a direct broker->Ollama connection,
+    // kept Ollama generating for a dead client and the NEXT task queued behind it (cycle-8 R-C: 709 s of dead
+    // compute after T08's timeout, 641 s of it billed to T13's first turn). Records get client_gone: true.
+    res.on('close', () => { if (upDone) return; clientGone = true; mark('meter_aborted_upstream'); up.destroy(); });
     up.on('socket', (s) => s.on('close', (hadErr) => mark(`upstream_socket_close${hadErr ? '_err' : ''}`)));
-    up.on('error', (e) => { mark(`upstream_req_error:${e.code || e.message}`); w({ id, t: new Date(t0).toISOString(), path: req.url, error: e.message, total_ms: Date.now() - t0, events: ev }); if (rawFd !== null) try { fs.closeSync(rawFd); } catch { /* */ } try { res.writeHead(502); res.end(); } catch { /* */ } });
+    up.on('error', (e) => {
+      upDone = true; mark(`upstream_req_error:${e.code || e.message}`);
+      // aborted by us before the upstream headers: not an upstream error, and there is no client to answer
+      if (clientGone) { w({ id, t: new Date(t0).toISOString(), path: req.url, model, stream, msgs: nMsgs, tools: nTools, client_gone: true, total_ms: Date.now() - t0, events: ev }); if (rawFd !== null) try { fs.closeSync(rawFd); } catch { /* */ } return; }
+      w({ id, t: new Date(t0).toISOString(), path: req.url, error: e.message, total_ms: Date.now() - t0, events: ev }); if (rawFd !== null) try { fs.closeSync(rawFd); } catch { /* */ } try { res.writeHead(502); res.end(); } catch { /* */ }
+    });
     up.end(body);
   });
 }).listen(LISTEN_PORT, LISTEN_HOST, () => w({ start: new Date().toISOString(), listen: `${LISTEN_HOST}:${LISTEN_PORT}`, upstream: `${UP.host}:${UP.port}`, raw: RAW, meter: 'meter7' }));

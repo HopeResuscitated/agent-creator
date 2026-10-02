@@ -50,11 +50,14 @@ out.push('');
 // ---------- model meter ----------
 const pct = (a, q) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(q * s.length))]; };
 const meter = readText(path.join(evDir, 'meter.jsonl')).split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x.id);
-const chat = meter.filter((x) => x.path?.includes('chat/completions') && !x.error);
+// client_gone (older logs: first_closer 'client'): the agent was killed mid-request (task timeout) and the meter
+// aborted the upstream. Not a model result: excluded from the stream statistics, counted separately.
+const gone = (x) => x.client_gone || x.first_closer === 'client';
+const chat = meter.filter((x) => x.path?.includes('chat/completions') && !x.error && !gone(x));
 const errors = meter.filter((x) => x.error).length;
 const non200 = meter.filter((x) => x.status && x.status !== 200).length;
 out.push('== MODEL (trusted-side meter between broker and Ollama)');
-out.push(`requests total=${meter.length} chat=${meter.filter((x) => x.path?.includes('chat/completions')).length} errors=${errors} non200=${non200}`);
+out.push(`requests total=${meter.length} chat=${meter.filter((x) => x.path?.includes('chat/completions')).length} errors=${errors} non200=${non200} client_gone=${meter.filter(gone).length}`);
 const ttfb = chat.map((x) => x.ttfb_ms), tot = chat.map((x) => x.total_ms);
 out.push(`chat ttfb ms n=${ttfb.length} p50=${pct(ttfb, 0.5)} p90=${pct(ttfb, 0.9)} max=${Math.max(0, ...ttfb)}`);
 out.push(`chat total ms n=${tot.length} p50=${pct(tot, 0.5)} p90=${pct(tot, 0.9)} max=${Math.max(0, ...tot)}`);

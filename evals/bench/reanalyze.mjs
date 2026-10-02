@@ -29,7 +29,8 @@ if (!OL.length) out.push(`(no Ollama log at ${olPath}: cross-check skipped)`);
 const tot = { req: 0, inc: 0, incWarn: 0, warnInWindow: 0, warnMapped: 0 };
 for (const d of dirs) {
   const recs = fs.readFileSync(path.join(d, 'meter.jsonl'), 'utf8').trim().split(/\r?\n/).map((l) => JSON.parse(l)).filter((x) => x.id);
-  const chat = recs.filter((x) => x.path?.includes('chat/completions'));
+  // client_gone (older logs: first_closer 'client'): the agent was killed mid-request; not a model stream result
+  const chat = recs.filter((x) => x.path?.includes('chat/completions') && !x.client_gone && x.first_closer !== 'client');
   if (!recs.length) { out.push(`== ${path.basename(d)}: no requests`); continue; }
   const t0 = Date.parse(recs[0].t), t1 = Math.max(...recs.map((x) => Date.parse(x.t) + x.total_ms));
   const inc = chat.filter((x) => !(x.status === 200 && x.finish && x.usage));
