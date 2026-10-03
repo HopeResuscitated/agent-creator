@@ -4,16 +4,18 @@ project: hermes-jcode-contained-agent
 repo: "C:/Users/cierra/Desktop/agent creator"
 branch: cierra-wip-2026-09-29      # PUSH STATE UNRESOLVED: origin has this branch at 6ca495a (pushed by another
                                    # session) although this file said "local only, never pushed". Local is ahead of
-                                   # origin by the commits under harness_commits plus the status commits (9 at d650c95).
+                                   # origin by the commits under harness_commits (12 at the 2026-10-03 final docs commit).
                                    # Hermes has not pushed. jcode-evalpin has no upstream configured; also never pushed.
-head: d650c95                      # harness HEAD 2026-10-03 (this PLAN/HANDOFF status commit sits on top of it)
+head: 5d3e8fe                      # last harness-code commit 2026-10-03 (later commits on top are PLAN/HANDOFF only)
 updated: 2026-10-03
 
 pins:                              # the evaluation contract; run.ts refuses (exit 2) on any mismatch
   node: "patched node 26.7.0 (A0, 14f50f2)"
   jcode: "C:/Users/cierra/jcode-evalpin-a2-bin/jcode.exe = jcode v0.88.64-dev (7ed7403f8),
           sha256 f76eff118ae42e9876727095c100420f485e7ea7a8904d3dd62e93f55beaf8e3 (A2, 3f9df6c).
-          Previous pin, superseded: C:/Users/cierra/jcode-evalpin-bin/jcode.exe v0.88.63-dev (1fbb2e1b4), sha256 7d467704..."
+          Previous pin, superseded: C:/Users/cierra/jcode-evalpin-bin/jcode.exe v0.88.63-dev (1fbb2e1b4), sha256 7d467704...
+          NOT pinned (candidate, see A3): C:/Users/cierra/jcode-evalpin-a3cand-bin/jcode.exe v0.88.65-dev (710560f91),
+          sha256 42ed4012e129cc36e9d3f3c299b3015fbde5c8cb95cab36ed41f0d526fd0bab7 - run.ts refuses it (verified)."
   jcode_build: "C:/Users/cierra/jcode-evalpin (branch eval-pin-74577fe83), rustup stable-x86_64-pc-windows-gnu 1.98.1,
                 PATH=<that toolchain>/bin, CARGO_TARGET_DIR=C:/Users/cierra/jcode/target, JCODE_BUILD_GIT_HASH=<short HEAD>,
                 cargo build --release --target x86_64-pc-windows-gnu --bin jcode (git-bash's coreutils `link` shadows MSVC;
@@ -30,17 +32,21 @@ harness_commits:                   # since 6ca495a (the last commit on origin)
   282c6ad: "PLAN/HANDOFF reconciled at 170cbd5"
   3f9df6c: "A2: jcode_sha256 pin in baseline-env.json; run.ts refuses any other agent binary (--allow-jcode-drift = debug)"
   d650c95: ".gitignore: .turbo/ (Turborepo cache)"
-jcode_commits:                     # C:/Users/cierra/jcode-evalpin, branch eval-pin-74577fe83, local only
+  2c7e9ef: "PLAN/HANDOFF after the clean A2 validation"
+  5d3e8fe: "power integrity: keepawake.ps1 + sleepcheck.ps1; a run that spans a sleep exits 7 (not evidence); power source recorded"
+jcode_commits:                     # C:/Users/cierra/jcode-evalpin, local only
   1fbb2e1b4: "XML tool-call recovery (previous pin)"
-  7ed7403f8: "A2: retry an HTTP 200 stream that ends without finish_reason (cap 2, only if this response emitted no tool call)"
+  7ed7403f8: "A2: retry an HTTP 200 stream that ends without finish_reason (cap 2, only if this response emitted no tool call) - branch eval-pin-74577fe83, PINNED"
+  710560f91: "A3 candidate: edit tool accepts `edits` sent as a JSON string - branch eval-pin-a3-candidate (on top of 7ed7403f8), NOT pinned"
 
 architecture: |
   evals/bench/suite.sh -> evals/run.ts (node pin + model-server pin gates, stages patched node/npm/relay, agent home, fingerprint)
     -> evals/tools/run-in-job.ps1 (Job Object, AppContainer, ACL grants, fixed env + PATH)
       -> jcode (contained) -> model-relay.mjs 127.0.0.1:<rand> -> named pipe (DACL: user + this run's AC SID, Low IL)
       -> ModelBroker (trusted side, one canonical 127.x upstream) -> meter.mjs 127.0.0.2:11439
-      -> Ollama 127.0.0.1:11434 -> hermes-local-32k (CPU, ~7 tok/s)
-  Monitors: watch.ps1 (watchdog), fpcmp.mjs (repo + ~/.jcode integrity), analyze/classify.mjs
+      -> Ollama 127.0.0.1:11434 -> hermes-local-32k (CPU; measured decode 2.4-4.8 tok/s at 8-11k-token prompts, first token up to 357 s)
+  Monitors: watch.ps1 (watchdog), fpcmp.mjs (repo + ~/.jcode integrity), analyze/classify.mjs,
+            keepawake.ps1 + sleepcheck.ps1 (power integrity, ev-<label>/power.txt)
   Control mode (--no-contain-unsafe): same config/env/tools, no AppContainer/ACL/broker.
 
 invariants:            # must hold on every contained run
@@ -59,6 +65,7 @@ status_contract:       # run-in-job.ps1 exit -> scoring
   4: "SETUP_FAILED - agent never started, excluded from score"
   5: "AGENT_STATUS_UNKNOWN - not graded, counts as fail"
   suite_sh_exit_6: "meter died during the run - the whole run is not evidence (reduced.sh stops)"
+  suite_sh_exit_7: "machine slept during the run (System log) - the whole run is not evidence (reduced.sh stops)"
 
 known_limits_contained: ["del/erase denied (rmdir /s, fs.rmSync work)", "no taskkill/tasklist (node --test ~+9 s)",
                          "no python", "no network (npm install fails)"]
@@ -70,7 +77,9 @@ evidence:
   cycle7_T05: "2/5 contained, 2/5 control; every failure ends on an incomplete stream, every pass is complete"
   decision_rule: "PASSED (pooled). Holding before infrastructure BY CHOICE: same-mode disagreement is 41%"
   cycle8: "archive C:/Users/cierra/hermes-bench-archive/cycle8 (R-C, R-D, 4x T01 fingerprints, probe run)"
-  cycle9: "archive C:/Users/cierra/hermes-bench-archive/cycle9 (A2: clean validation a2val3-VALID, contaminated runs 1+2, scenario + unit outputs, scripts)"
+  cycle9: "archive C:/Users/cierra/hermes-bench-archive/cycle9 (A2: clean validation a2val3-VALID, contaminated runs 1+2,
+           scenario + unit outputs; Phase B: b5-phaseB (battery), b6-phaseB-AC; results-* copies; reference run; a3-candidate;
+           final-regression; scripts)"
 
 phases:
   A0_runner_node:
@@ -208,29 +217,101 @@ phases:
             (C-a 2 and C-c 7 are the warm-up curl only). Zero containment violations."
     integrity: "repo fingerprint UNCHANGED after every suite; git status identical before/after; ~/.jcode UNCHANGED
                 (656 entries, tree 03835244f0155e66f52453456aad705d34f666cf)"
+  power_integrity:
+    status: COMPLETE (5d3e8fe)
+    found: "2026-10-03 the b5 Phase B control run ran on battery; the laptop slept at 00:54 ('Sleep Reason: Battery') and
+            woke at 11:14 (power button). Nothing in the harness noticed."
+    change: "keepawake.ps1: process-scoped SetThreadExecutionState (system + display required) for the whole suite,
+             released on exit, no power setting changed; best effort (battery-critical / lid / power-button sleep still
+             happens). sleepcheck.ps1: reads the System log for the run window; any sleep/standby transition (Kernel-Power
+             42/506/107/507, Power-Troubleshooter 1) -> exit 1; always records AC/battery and Kernel-Power 105 power-source
+             changes as a POWER WARNING. suite.sh writes ev-<label>/power.txt and exits 7 if the machine slept;
+             reduced.sh (and t05x6.sh through it) stops on 7."
+    rules: ["a run that spans a sleep is not evidence (exit 7)", "a battery run is flagged; its timings/TIMEOUTs are not
+             comparable with AC runs (correctness, containment and fingerprints are unaffected)"]
+    verified: ["sleepcheck on the real b5 window: 5 transitions + 2 power-source changes, exit 1",
+               "sleepcheck on the clean A2 window (2026-10-02 19:31-22:58): no sleep, exit 0 -> validation_a2_clean stays VALID",
+               "keepawake sets and releases, no stray process", "zero-task contained suite: exit 0, power.txt written, repo + ~/.jcode unchanged",
+               "b6 (both modes) ran through the new path on AC: 'no sleep', power.txt AC", "final_regression zero-task suites both modes"]
   B_validate:
-    status: "PARTIALLY COMPLETE - pending: 5th T05 rep per mode + T08 post-A2 (both modes)"
+    status: "COMPLETE - acceptance met (no T05 failure ends on an unrecovered incomplete stream; retries bounded and logged).
+             T08 post-A2 = TIMEOUT both modes, a CPU-throughput limit (-> H), not a Phase B defect"
     pre_fix: ["probe.sh both modes (above)", "t05x6 3+3 (above)", "gates at 170cbd5 (see HANDOFF test table)"]
-    do_after_A2: ["probe.sh malformed cases: DONE (validation_a2_clean)", "child-test 10/10, probe 20/20, byte tests 12/12 + 9/9: DONE",
-                  "5 contained + 5 control T05: 4 + 4 DONE in validation_a2_clean; 1 + 1 pending"]
-    added_2026_10_03: "T08 post-A2 both modes: its pre-A2 control failure was the A2 defect (A0 failure_causes), so its
-                       status cannot be inferred from pre-A2 evidence"
+    do_after_A2: ["probe.sh malformed cases: DONE (validation_a2_clean)", "child-test 10/10, probe 20/20, byte tests 12/12 + 9/9: DONE
+                  (validation_a2_clean, b5, b6, final_regression)", "5 contained + 5 control T05: DONE (4 + 4 validation_a2_clean, 1 + 1 b6)",
+                  "T08 post-A2 both modes: DONE (b6 on AC; b5 on battery)"]
+    t05_ten_authoritative: "contained 5/5 PASS (A-C3 422, C-a 326, C-b 247, C-c 522, B2-C 497 s); control 3 PASS + 2 TIMEOUT
+                  (A-D3 1201 and D-b 1201: tests passed when graded; D-a 460, D-c 1040, B2-D 373 s). A2 retries 6 (contained 3, control 3), gave up 0."
+    t05_b5_contained_FAIL: "extra run (battery, b5), not erased: FAIL 882 s 'test file was modified' - MODEL behaviour, no
+                  truncated stream. The agent fixed chunk.ts, then rewrote the protected test file to add its own tests,
+                  tried to revert with an edit whose `edits` was a string (rejected, see A3), then claimed 'No changes were
+                  made to the test file'. Even if the string had been accepted, its old_string ended at '}' where the file
+                  has '});', so the 'revert' would have left a broken file. Grader correctly caught it; not changed. Not
+                  reproduced in b6 (T05 contained PASS 497 s, test file untouched)."
+    validation_b5: "2026-10-03 00:09-~01:00, gates PASS, NOT authoritative for timing: on battery; machine slept 00:54-11:14 (1 s
+                  after T08 control's 1800 s budget ended, so no task was cut short). Results: T05 contained FAIL (above),
+                  T05 control PASS 657, T08 TIMEOUT both. Contained TRIP 0; control 459 attributed; fingerprints match;
+                  repo + ~/.jcode unchanged; no external activity."
+    validation_b6:
+      status: "VALID / authoritative - 2026-10-03 11:25:24 -> 12:49:56, HEAD 5d3e8fe, jcode f76eff11, on AC throughout
+               (53% -> 72%), sleepcheck 'no sleep' both stages, 0 EXTERNAL-ACTIVITY (monitor), quiet 3 min before start"
+      gates: "PASS: node pin / model-server pin / old jcode -> exit 2; contained-child 10/10; secprobe 20/20; relay + e2e + meter abort as before"
+      tasks: {T05_contained: "PASS 497 s (2 A2 retries, recovered)", T05_control: "PASS 373 s",
+              T08_contained: "TIMEOUT 1806 s (hidden 0 of 4; 2 files changed +18 lines)", T08_control: "TIMEOUT 1801 s (1 A2 retry, recovered; 1 file +16)"}
+      fingerprints: "control vs contained ref: mismatches=0"
+      trips: "B2-C contained 0. B2-D control 407: 203 meter-connection-from-non-broker + 203 agent-nonloopback (127.0.0.2:11439) =
+              the 2 control jcode agents (documented control pattern); 1 ollama-connection-from-non-meter pid 38500 name=? at
+              12:11:05 = the harness warm-up curl (finished 12:11:04.26; process gone before the watcher resolved it; same
+              pattern as the 12 warm-up TRIPs in validation_a2_clean; attributed by timing). No containment violation."
+      integrity: "repo fingerprint UNCHANGED both stages; git status UNCHANGED; ~/.jcode UNCHANGED (656 entries, tree 03835244...)"
+    t08_analysis: "TIMEOUT in all 4 post-A2 runs (b5 x2 battery, b6 x2 AC); reference agent passes T08 (18/18 run 2026-10-03), so
+                  the grader is passable. b6 meter: contained 10 requests / control 8, every turn ended in a tool call except
+                  the request in flight at the kill (client_gone), no stall; first token 5-274 s growing with the prompt
+                  (2.5k -> 11.5k tokens); decode 3.9 (C) / 4.8 (D) tok/s; longest request 534 s (C, 1214-token edit) and
+                  750 s (D, a truncated stream that A2 retried: 546 s for 2489 tokens). ~1600 s of the 1800 s budget is
+                  generation. Contained vs control: same shape, same reads, same failure point (tool not yet registered).
+                  AC vs battery: AC decode 3.9-4.8 tok/s vs 2.4 tok/s in the one battery run with enough tokens to measure
+                  (b5 control). Pre-A2 cycle-8 control failure (exit 0 on a truncated stream at 948 s) did not recur:
+                  A2 retried it. Classification: TIMEOUT, CPU/model throughput; timeout unchanged (30 min)."
     accept: "no T05 failure ends on an unrecovered incomplete stream; retries bounded and logged"
+  A3_edit_string_args:
+    status: "PARTIALLY COMPLETE - implemented + unit + scenario tested (jcode 710560f91); NOT pinned, NOT real-task validated.
+             Adoption is bundled with the H/C re-pin (decision for the user; recommended yes)"
+    defect: "jcode tool-interface robustness: 2 of 24 edit calls in the A2-era raw request logs (cycle9: b5 T05 contained, b6 T08
+             contained) sent `edits` as a string whose nested strings hold raw newlines (one encoding level short). serde
+             rejected them ('invalid type: string ..., expected a sequence') and the agent lost a turn. A 3rd malformed call
+             (fused key names) is model output corruption and stays rejected."
+    change: "edit.rs normalize_edit_input: a string `edits` that decodes to an array (strict JSON, or after escaping raw \\n \\r
+             \\t inside string literals) is used as the array. Everything else takes the old path and errors as before. Same
+             idea as the existing normalize_todo_input for the todo tool. Branch eval-pin-a3-candidate, not eval-pin-74577fe83."
+    tests: ["unit tool::edit 20/20 (3 new)", "scenario a3e2e.mjs (fake server, real binary): pinned A2 binary - native array
+             applied, strict-string / raw-newline string / garbage all rejected (file untouched); candidate - native, strict-string
+             and raw-newline string all applied identically, garbage still rejected, file untouched", "A2 scenarios S1/S3/S5b
+             unchanged on the candidate", "run.ts refuses the candidate binary (pin gate)", "~/.jcode unchanged across the unit run"]
+    why_not_pinned: "pinning changes the agent under test: new baseline + fingerprints + real-task revalidation on this CPU, and
+             C must re-pin on the final hardware anyway (H rerun_after). Doing it once at that point avoids two baseline breaks.
+             It would not have changed the b5 T05 FAIL (see B_validate.t05_b5_contained_FAIL)."
   H_hardware:          # must be decided BEFORE C; C must run on final hardware + model
     status: BLOCKED - open decision (user); not decided by Hermes
     proven_on_cpu: ["containment, fingerprints, gates and the contained-vs-control comparison do not depend on speed",
                     "T03/T14/T17 timeouts are slow-but-progressing generation, not hangs or harness faults; none involved an incomplete stream",
-                    "T08 contained: first-token latency (801 s) on a long context",
+                    "T08 post-A2 (b6, AC): TIMEOUT both modes; continuous progress, decode 3.9-4.8 tok/s, first token up to 274 s; reference passes",
                     "T13 post-A2: progressing generation at 3.7-4.7 tok/s until the 2700 s timeout, identical both modes",
-                    "T05 post-A2: 2 of 8 runs graded pass only at the 1201 s timeout (both control): T05 sits at the limit on this CPU"]
+                    "T05 post-A2: 2 of 10 authoritative runs graded pass only at the 1201 s timeout (both control): T05 sits at the limit on this CPU",
+                    "power: runs must be on AC (battery decode measured ~2.4 tok/s vs 3.9-4.8 on AC); sleep invalidates a run (exit 7)"]
     hardware_dependent: ["pass rates of T03/T08/T13/T14/T17 (and T05 margin)", "suite wall time (8 tasks ~2-2.5 h per mode)",
                          "statistical power of C (more reps per hour)"]
     resolves: "local NVIDIA GPU with enough VRAM for the chosen quant of the 32B model at 32k context (preferred, no egress),
                or remote inference via tunnel-to-loopback + egress policy"
-    rerun_after: ["re-pin model_server (new digest if re-quantised) and node/jcode if changed", "full gates",
+    rerun_after: ["re-pin model_server (new digest if re-quantised) and node/jcode if changed (incl. the A3 decision)", "full gates",
                   "T01 x4 fingerprint check", "quant_trial", "then C"]
     quant_trial: "Q4_K_M vs Q8_0; metric = malformed tool-call rate over >=300 requests, plus tok/s; pick ONE for all evals"
     timeouts: "do not raise task timeouts to manufacture passes; decide them with the hardware, pre-registered for C"
+  final_regression:
+    status: "PASS - 2026-10-03 13:17-13:22, HEAD 5d3e8fe, jcode f76eff11, AC, 0 EXTERNAL-ACTIVITY (archive cycle9/final-regression)"
+    results: ["node / model-server / old jcode / unpinned A3-candidate gates: exit 2", "contained-child 10/10", "secprobe 20/20",
+              "relay 12/12, contained-e2e 9/9", "meter kill-abort ttfb 176 ms", "zero-task suites contained + control: exit 0, AC, no sleep, TRIP 0",
+              "repo fingerprint + git status + ~/.jcode unchanged"]
   C_rebaseline:
     status: BLOCKED on H (A2 is complete; C must run on the final hardware + model, so running it now would be discarded)
     tasks: [T13, T14, T17, T04, T05, T03, T08, T01]
@@ -240,8 +321,9 @@ phases:
     decision_rule: ["invariants hold every contained run", "fingerprints match within mode",
                     "no contained-only failure with a containment-specific error",
                     "contained-vs-control disagreement <= contained-vs-contained", "same-mode disagreement well below 41%"]
-    preconditions_left: ["H decided", "Ollama auto-update off or deliberately re-pinned", "repo AGENTS.md (agent input) updated deliberately"]
-  D_gate: "foundation complete -> infrastructure phase"
+    preconditions_left: ["H decided", "A3 adopt/not decided (re-pin jcode once, with H)", "Ollama auto-update off or deliberately re-pinned",
+                         "repo AGENTS.md (agent input; line 3 still says 'LM Studio, Omnicoder 9B') updated deliberately", "machine on AC and exclusive"]
+  D_gate: "NOT RUN - after C (foundation complete -> infrastructure phase)"
 
 infrastructure_phase:  # one change at a time, each followed by an 8-task contained + control re-check
   E1: "contained 'work on my folder' command (replaces running jcode uncontained)"
@@ -266,7 +348,8 @@ rejected_ideas:        # reviewed 2026-10-02; do not re-propose without new evid
 operating_rules:
   - "fresh Hermes session per prompt; Sonnet for mechanical work, Opus for judgment"
   - "long runs launched by the user in PowerShell; Hermes reads only final logs; no polling"
-  - "one benchmark runner at a time"
+  - "one benchmark runner at a time; nothing else using jcode/Ollama during a run (2 runs were CONTAMINATED by manual jcode use)"
+  - "benchmarks on AC power; a run that slept is not evidence (suite.sh exit 7)"
   - "Hermes compression model must be a trusted provider (was a free OpenRouter model)"
   - "repo AGENTS.md is an agent input (stale: says LM Studio/Omnicoder) - update deliberately before C"
   - "keep the meter's output (suite.sh writes ev-<label>/meter.out); never filter it away in gate scripts"
