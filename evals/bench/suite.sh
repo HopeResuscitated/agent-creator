@@ -23,6 +23,10 @@ MODEL=${MODEL:-hermes-local-32k}
 METER_LISTEN=${METER_LISTEN:-127.0.0.2:11439}; METER_UPSTREAM=${METER_UPSTREAM:-127.0.0.1:11434}
 MHOST=${METER_LISTEN%:*}; MPORT=${METER_LISTEN##*:}
 rm -rf "$EV"; mkdir -p "$EV" "$OUT/outside"
+# Power integrity: keep the machine from idle-sleeping for the whole suite (best effort, process-scoped), and after
+# the run check the System log for any sleep in the window (sleepcheck.ps1): a run that slept is not evidence (exit 7).
+PSTART=$(date -Iseconds)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WBENCH/keepawake.ps1" -Stop "$(cygpath -w "$EV/KASTOP")" > "$EV/keepawake.out" 2>&1 & KAPID=$!
 "$NODE_BIN" "$WBENCH/fp.mjs" "$WEV/fp-pre.txt" >/dev/null
 "$NODE_BIN" "$WBENCH/evfp.mjs" "$WEV/ev-pre.txt" >/dev/null
 ( cd "$REPO" && git rev-parse HEAD > "$EV/head.txt" && git status --short > "$EV/status-pre.txt" )
@@ -61,5 +65,9 @@ if [ -n "$RUNDIR" ]; then
   "$NODE_BIN" "$WBENCH/classify.mjs" --run "$RUNDIR" --out "$WOUT/classify-$LABEL.txt" >/dev/null && echo "classify: $WOUT/classify-$LABEL.txt"
   echo "results: $RUNDIR"
 fi
+touch "$EV/KASTOP"; wait $KAPID 2>/dev/null
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WBENCH/sleepcheck.ps1" -From "$PSTART" -To "$(date -Iseconds)" > "$EV/power.txt" 2>&1; SLEPT=$?
+grep -E "^(power now|POWER WARNING|SLEEP DETECTED)" "$EV/power.txt" | tr -d '\r'
 if [ $METER_ALIVE = 0 ]; then echo "METER DIED DURING THE RUN (see $EV/meter.out): results are NOT evidence"; tail -5 "$EV/meter.out"; echo SUITE-DONE; exit 6; fi
+if [ $SLEPT != 0 ]; then echo "MACHINE SLEPT DURING THE RUN (see $EV/power.txt): results are NOT evidence"; echo SUITE-DONE; exit 7; fi
 echo SUITE-DONE

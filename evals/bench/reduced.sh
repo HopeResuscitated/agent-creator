@@ -53,6 +53,7 @@ for r in "${RUNS[@]}"; do
   bash "$BENCH/suite.sh" --out "$OUT" "$L" "$M" --only "$TASKS" > "$OUT/run-$L.log" 2>&1; SRC=$?
   echo "=== $(date -Iseconds) end $L :: $(grep -E '^Score|TRIP lines|fingerprint (UNCHANGED|DIFFERS)|UNCHANGED|DIFFERS' "$OUT/run-$L.log" | tr '\n' ' ' | cut -c1-300)" | tee -a "$LOG"
   [ $SRC = 6 ] && { echo "STOP: meter died during $L ($OUT/ev-$L/meter.out); $L is not evidence" | tee -a "$LOG"; exit 6; }
+  [ $SRC = 7 ] && { echo "STOP: machine slept during $L ($OUT/ev-$L/power.txt); $L is not evidence" | tee -a "$LOG"; exit 7; }
   fpcheck "$L" || { echo "STOP: fingerprint mismatch in $L" | tee -a "$LOG"; exit 4; }
 done
 echo REDUCED-DONE | tee -a "$LOG"

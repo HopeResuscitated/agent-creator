@@ -13,11 +13,15 @@ Benchmark runs
   suite.sh --out <dir> <label> <contain|control> [run.ts args]   one run + meter + watchdog + fingerprints,
                                                                    then analysis-<label>.txt / classify-<label>.txt;
                                                                    meter output in ev-<label>/meter.out; exit 6 if the
-                                                                   meter died during the run (the run is not evidence)
+                                                                   meter died during the run (the run is not evidence);
+                                                                   exit 7 if the machine slept during the run
+                                                                   (keepawake.ps1 holds off idle sleep; sleepcheck.ps1
+                                                                   reads the System log; ev-<label>/power.txt also
+                                                                   warns on battery / power-source changes)
   reduced.sh --out <dir> [--tasks ..] [--ref f] [--expect-head sha] <label>:<mode> ...
                                                                    gated sequence of suite.sh runs; with --ref, stops
                                                                    when a task's effective-config fingerprint differs,
-                                                                   and (exit 6) when a run's meter died
+                                                                   and when a run's meter died (exit 6) or the machine slept (exit 7)
   t05x6.sh --out <dir> [...]                                       T05 x 3 contained + 3 control, interleaved
   JCODE_BIN=<pinned jcode.exe> selects the agent binary for all of the above; run.ts refuses unless its
   sha256 equals jcode_sha256 in evals/baseline-env.json (current pin: C:\Users\cierra\jcode-evalpin-a2-bin\jcode.exe).
