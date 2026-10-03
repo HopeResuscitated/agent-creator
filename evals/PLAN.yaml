@@ -4,9 +4,21 @@ project: hermes-jcode-contained-agent
 repo: "C:/Users/cierra/Desktop/agent creator"
 branch: cierra-wip-2026-09-29      # PUSH STATE UNRESOLVED: origin has this branch at 6ca495a (pushed by another
                                    # session) although this file said "local only, never pushed". Local is ahead of
-                                   # origin by the commits under harness_commits plus this status commit. Hermes has not pushed.
-head: 170cbd5                      # harness HEAD as of 2026-10-02 (the PLAN/HANDOFF status commit sits on top of it)
-updated: 2026-10-02
+                                   # origin by the commits under harness_commits plus the status commits (9 at d650c95).
+                                   # Hermes has not pushed. jcode-evalpin has no upstream configured; also never pushed.
+head: d650c95                      # harness HEAD 2026-10-03 (this PLAN/HANDOFF status commit sits on top of it)
+updated: 2026-10-03
+
+pins:                              # the evaluation contract; run.ts refuses (exit 2) on any mismatch
+  node: "patched node 26.7.0 (A0, 14f50f2)"
+  jcode: "C:/Users/cierra/jcode-evalpin-a2-bin/jcode.exe = jcode v0.88.64-dev (7ed7403f8),
+          sha256 f76eff118ae42e9876727095c100420f485e7ea7a8904d3dd62e93f55beaf8e3 (A2, 3f9df6c).
+          Previous pin, superseded: C:/Users/cierra/jcode-evalpin-bin/jcode.exe v0.88.63-dev (1fbb2e1b4), sha256 7d467704..."
+  jcode_build: "C:/Users/cierra/jcode-evalpin (branch eval-pin-74577fe83), rustup stable-x86_64-pc-windows-gnu 1.98.1,
+                PATH=<that toolchain>/bin, CARGO_TARGET_DIR=C:/Users/cierra/jcode/target, JCODE_BUILD_GIT_HASH=<short HEAD>,
+                cargo build --release --target x86_64-pc-windows-gnu --bin jcode (git-bash's coreutils `link` shadows MSVC;
+                the GNU toolchain must be first on PATH)"
+  model_server: "Ollama 0.34.4; hermes-local-32k digest 1ef2c71ed2065896b080104a0499a15b320f9ea3f9049bacdadc42e71630b60f (A0b)"
 
 harness_commits:                   # since 6ca495a (the last commit on origin)
   94ff963: "*.sh checked out with LF (.gitattributes); no file content changed"
@@ -15,6 +27,12 @@ harness_commits:                   # since 6ca495a (the last commit on origin)
   480ea05: "A0b: model-server pin (Ollama version + model digest), fail closed, in the fingerprint"
   ac49b52: "A0b: model-server query uses a closed connection (no keep-alive socket to Ollama)"
   170cbd5: "suite.sh/reduced.sh: a meter that dies mid-run fails the run (exit 6) instead of becoming model FAILs"
+  282c6ad: "PLAN/HANDOFF reconciled at 170cbd5"
+  3f9df6c: "A2: jcode_sha256 pin in baseline-env.json; run.ts refuses any other agent binary (--allow-jcode-drift = debug)"
+  d650c95: ".gitignore: .turbo/ (Turborepo cache)"
+jcode_commits:                     # C:/Users/cierra/jcode-evalpin, branch eval-pin-74577fe83, local only
+  1fbb2e1b4: "XML tool-call recovery (previous pin)"
+  7ed7403f8: "A2: retry an HTTP 200 stream that ends without finish_reason (cap 2, only if this response emitted no tool call)"
 
 architecture: |
   evals/bench/suite.sh -> evals/run.ts (node pin + model-server pin gates, stages patched node/npm/relay, agent home, fingerprint)
@@ -52,10 +70,11 @@ evidence:
   cycle7_T05: "2/5 contained, 2/5 control; every failure ends on an incomplete stream, every pass is complete"
   decision_rule: "PASSED (pooled). Holding before infrastructure BY CHOICE: same-mode disagreement is 41%"
   cycle8: "archive C:/Users/cierra/hermes-bench-archive/cycle8 (R-C, R-D, 4x T01 fingerprints, probe run)"
+  cycle9: "archive C:/Users/cierra/hermes-bench-archive/cycle9 (A2: clean validation a2val3-VALID, contaminated runs 1+2, scenario + unit outputs, scripts)"
 
 phases:
   A0_runner_node:
-    status: done (14f50f2)
+    status: COMPLETE (14f50f2)
     verified: ["4 T01 launches (git-bash/PowerShell x contained/control): identical fingerprint 4dcba4e1 (pre-A0b)",
                "bare v22 node refused for runs and --stage-tools-only (exit 2, nothing staged)",
                "reduced.sh run end to end: R-C contained 6/8, R-D control 5/8, 8/8 per-task fingerprints match"]
@@ -63,8 +82,14 @@ phases:
                      The only disagreement is T14; no contained-only failure. R-C TRIP=0; R-D TRIP=1161 = documented control
                      pattern (agent dials the meter directly; cycle-6 control: 1514/1351) + 3 from an unrelated client at 12:51."
     failure_causes: {T13: "malformed tool call -> incomplete stream -> jcode exits 0 (A1 case b); also failed in baseline",
-                     T08: "CPU timeout (last turn waited 801 s for the first token); also failed in baseline",
-                     T03_T14_T17: "model still working at the task timeout (no hang); ~7 tok/s CPU"}
+                     T08: "CORRECTED 2026-10-03 from the cycle-8 meter + transcripts: contained = TIMEOUT at 1803 s (one turn
+                           waited 801 s for the first token); control = NOT a timeout: ended at 948 s with exit 0 on a
+                           truncated stream (meter id 31: 50 chars of text, no finish) after 'Now I need to add the new tool
+                           to the tools index:' - the A2 defect. Earlier text said 'CPU timeout' for both; that was wrong for control.",
+                     T03_T14_T17: "model still working at the task timeout (no hang); ~4-8 tok/s decode on CPU. Re-checked
+                                   2026-10-03: none of their R-C/R-D requests ended without finish_reason, so A2 cannot
+                                   change them; results.json grades T03/T14/T17 contained and T14 control as timedOut
+                                   (tests passed when graded except T14 control: build errors). Classified TIMEOUT."}
     meter_incident: "Found in R-C: when an agent was killed at its task timeout, meter.mjs logged the client close but
                      kept its own request to Ollama open, so Ollama kept generating for a dead client and the next task
                      queued behind it (709 s of dead compute after T08's timeout, 641 s of it billed to T13's first
@@ -73,6 +98,7 @@ phases:
                      killed generation ttfb 147-169 ms (was 641 s); Ollama's own log ends the killed request at the disconnect."
     accept: "git-bash and PowerShell launches give identical fingerprints (all per-task fields)"
   A0_scripts:
+    status: "COMPLETE - reduced.sh, t05x6.sh, probe.sh all run end to end (pre- and post-A2)"
     reduced.sh: "RUN END TO END (R-C, R-D above; plus a zero-task run proving the exit-6 meter-death stop)"
     t05x6.sh: "RUN END TO END 2026-10-02 at e1d3880 (pre-A0b). Contained 2/3 (C-a F, C-b P, C-c P), control 2/3
                (D-a P, D-b F, D-c P). Both failures end on an incomplete stream with an Ollama parse warning at its
@@ -83,8 +109,10 @@ phases:
                nondeterminism); text-then-malformed -> HTTP 200 ending with finish_reason null, no usage, no [DONE];
                well-formed -> complete. Containment cleanup proven both modes. 1 TRIP = streamprobe's control client
                dialing the meter directly (expected in control)."
+    post_A2: "both re-run 2026-10-02 in the clean A2 validation (validation_a2_clean below): t05x6 contained 3/3 PASS,
+              control 3/3 PASS; probe.sh PASS (ran end to end), Ollama-side defect unchanged as expected (probe bypasses jcode)."
   A0b_model_server_pin:
-    status: done (480ea05, ac49b52) except one host setting
+    status: COMPLETE (480ea05, ac49b52); one host setting is the user's (open_host_setting)
     done: ["baseline-env.json model_server {ollama_version 0.34.4, hermes-local-32k digest 1ef2c71e...}",
            "run.ts asks Ollama (trusted side, --ollama-api) and refuses (exit 2, before staging) on version/digest
             mismatch, unpinned model, or unreachable Ollama; --allow-model-server-drift = recorded debug override",
@@ -98,7 +126,7 @@ phases:
                         app restart. The gate turns that into a refusal, not a silent change. To prevent it: Ollama
                         app Settings -> turn off automatic updates (user action; not changed by Hermes)."
   A1_investigate:
-    status: done (read-only, jcode source C:/Users/cierra/jcode-evalpin @ 1fbb2e1b4)
+    status: COMPLETE (read-only, jcode source C:/Users/cierra/jcode-evalpin @ 1fbb2e1b4)
     findings:
       http_500: "retried: text-classified as retryable, provider.max_retries (default 8 incl. first try), backoff 1 s x2^n
                  +-20%, capped by retry_backoff_cap_secs (30). Exhausted -> run exits non-zero."
@@ -110,29 +138,92 @@ phases:
       knobs: "[provider] max_retries / JCODE_MAX_RETRIES, retry_backoff_cap_secs, stream_idle_timeout_secs; none makes clean EOF an error"
       xml_recovery_1fbb2e1b4: "recovers complete <function=..> calls written into text content; requires the closing tag; not the 500/EOF paths"
   A2_fix:
-    status: APPROVED by user 2026-10-02 (jcode-native option, cap 2, only before any tool ran) - NOT implemented as of this commit
-    proposal: "jcode-native (option 1): in the openai-compatible stream parser, a clean EOF with no finish_reason AND no
-               [DONE] becomes a retryable 'incomplete stream' error routed through the existing RetryRollback path
-               (clears partial text/tool calls, logs the marker). Separate cap of 2 for this class; only when no tool
-               call from this response has executed. HTTP 500 already retries (A1) - optionally lower its cap for the
-               parse-error body to the same 2."
-    why_decision: ["changes the agent binary -> new pinned jcode sha256 and a re-baseline (contract change)",
-                   "retrying samples the model again: improves pass rate by resampling, must be reported as such"]
-    alternatives: ["trusted-side retry shim in the meter position (no agent change; becomes part of the tested set)",
-                   "model-side: tool-turn temperature / chat template", "Ollama upgrade (0.35.1 may change the qwen parser) - needs a new pin + baseline"]
-    constraints: ["retry cap 2-3 for this class", "retry only when nothing executed", "no duplicated partial text",
-                  "no new network path; broker upstream unchanged"]
+    status: COMPLETE (jcode 7ed7403f8; pin 3f9df6c; real-task validation VALID 2026-10-02, validation_a2_clean)
+    change: "jcode-provider-openrouter stream.rs: at EOF with no [DONE], no finish_reason and no tool call handed out
+             for this response -> Err(INCOMPLETE_STREAM_ERROR) instead of MessageEnd{stop_reason: None}. Every other EOF
+             is unchanged (finish_reason present; [DONE] present; a tool call emitted). runtime openrouter_sse_stream.rs:
+             that error is retried at most INCOMPLETE_STREAM_MAX_RETRIES = 2 times, independent of provider.max_retries,
+             through the existing RetryRollback path (partial text cleared, marker '[connection interrupted, retrying
+             response from the top]', same backoff). After 2: 'Failed after 2 incomplete-stream retries', run exits
+             non-zero instead of passing partial prose off as the answer. HTTP 500 handling unchanged."
+    semantics_per_response: "'no tool has run' is evaluated per model response, not per run. Reason: every truncated
+             stream in R-C/R-D (T13 included) came 11-15 messages into the conversation, after earlier tools had run, so
+             a run-wide rule would never fire on the real failure. Safe because jcode dispatches tools only after the
+             stream ends, so a response that emitted no tool call has executed nothing; and the retried request is
+             byte-identical (earlier tool results are already in it), so no tool runs twice. A response that did emit a
+             tool call is never retried (old behaviour kept)."
+    design_history: "approved 2026-10-02 as option 1 (jcode-native). Rejected alternatives: trusted-side retry shim in the
+             meter position; model-side tool-turn temperature/chat template; Ollama upgrade (0.35.1 may change the qwen
+             parser; needs a new pin + baseline). Approved constraints met: cap 2, no execution before retry, no duplicated
+             partial text (RetryRollback clears it), no new network path."
+    reporting_note: "retrying resamples the model; pass-rate changes are partly resampling and are reported as such"
+    unit_tests: "jcode-provider-openrouter --lib 42/42 PASS (7 new A2 tests: complete; finish w/o [DONE]; [DONE] w/o finish;
+                 text+EOF; Ollama's verbatim rejected-tool-call tail; empty stream; tool call+EOF not an error)"
+    scenario_tests: "real jcode.exe vs a scripted fake server, old 7d467704 vs new f76eff11 (cycle9/scripts/a2e2e.mjs, results cycle9/scenario-e2e):
+                 normal finish unchanged; text+EOF every time: old exit 0 on partial text, new 2 retries then exit 1;
+                 T13 shape then good: old accepts partial, new 1 retry + correct answer; HTTP 500 once / always:
+                 unchanged (recovered / 8 attempts exit 1); tool call+EOF: tool runs, not retried; tool ran earlier then
+                 text+EOF: retried, tool still ran once; retried requests byte-identical (same body sha); discarded text
+                 never appears in later requests."
+    preexisting_failures: "jcode-provider-openrouter-runtime --lib: 4 FAIL on BOTH 1fbb2e1b4 and 7ed7403f8, identical
+                 (autodetected_profile_seeds_default_model_and_cache_namespace, autodetects_single_saved_local_openai_compatible_profile,
+                 autodetects_single_saved_openai_compatible_profile, named_openai_compatible_loads_api_key_from_env_file).
+                 Provider-profile/API-key autodetection; A2 does not touch it; not modified. Note: these jcode unit tests
+                 write mock-server caches into the real ~/.jcode/cache even with HOME/USERPROFILE/JCODE_HOME redirected;
+                 the 6 files they created were removed and ~/.jcode verified identical to its pre-test fingerprint."
+    pin_gate: "baseline-env.json jcode_sha256; run.ts refuses (exit 2, before results dir/staging) any other binary.
+               Verified: A2 binary runs; old binary and ~/.local/bin/jcode.exe refused; --allow-jcode-drift warns + records
+               DRIFT; --write-env keeps the pin. Fingerprints change intentionally (jcode sha per task): runs before
+               3f9df6c are not fingerprint-comparable."
+  validation_a2_clean:
+    status: "VALID - run 3 (archive cycle9/a2val3-VALID; script cycle9/scripts/a2val3.sh), 2026-10-02 19:31:51 -> 22:58:35, HEAD 3f9df6c, jcode f76eff11"
+    exclusivity: "started after 3 consecutive quiet minutes (no jcode.exe, no Ollama client, no harness); an attribution
+                  monitor sampled every 20 s. No external jcode or Ollama client in the whole window."
+    superseded_runs: "run 1 (a2val): CONTAMINATED - user's manual jcode runs (PIDs 29900/26056/5808, 17:12-17:59, direct to
+                  Ollama, real ~/.jcode) overlapped T13 contained; control + t05x6 then refused at the gate (running_jcode=1).
+                  run 2 (a2val2): CONTAMINATED - manual jcode PID 28440 (18:56) overlapped T13 contained; driver stopped.
+                  Neither is used as evidence. (Run 1 T01/T05 contained finished before 17:12 and agree with run 3.)"
+    gates: "PASS: bare v22 node, unreachable model server, old jcode binary -> each exit 2; contained-child 10/10; secprobe
+            20/20; relay 12/12 (+ the 'TOTAL 0/3' / port-99999 lines identical in every run since cycle 8); contained-e2e
+            9/9; meter kill-abort (request after a killed generation ttfb 173 ms)"
+    probe_sh: "PASS (ran end to end, both modes). Ollama-side defect unchanged (500 on malformed-first; 200 ending with no
+               finish on text-then-malformed); expected - probe talks to Ollama directly, not through jcode"
+    tasks:   # result, seconds, A2 retries seen in the transcript (none gave up)
+      contained_A-C3: {T01: "PASS 135", T05: "PASS 422 (1 retry)", T13: "TIMEOUT 2704 (1 retry)"}
+      control_A-D3:   {T01: "PASS 80", T05: "TIMEOUT 1201 - tests passed when graded (0 retries)", T13: "TIMEOUT 2701 (2 retries)"}
+      t05x6:          {C-a: "PASS 326", C-b: "PASS 247", C-c: "PASS 522", D-a: "PASS 460 (1 retry)",
+                       D-b: "TIMEOUT 1201 - tests passed when graded (2 retries)", D-c: "PASS 1040"}
+    t05_summary: "8 T05 runs, all graded pass; 2 of them (both control) only at the 1201 s timeout. Pre-A2 t05x6 was
+                  2/3 + 2/3 with both failures on an unrecovered incomplete stream; post-A2 no T05 ends on one."
+    t13: "TIMEOUT both modes (2704/2701 s), hidden tests 1 of 3 cases now pass ('planner throwing -> failed, no throw';
+          pre-A2 all failed). A2 removed the early exit on partial prose: the agent retried and kept working. Meter shows
+          continuous progress (no stall beyond a single request), decode 3.7-4.7 tok/s at ~9.7k-token prompts, first
+          token up to 282 s, a 2311-token edit took 643 s; the last request was in flight when the timeout killed it.
+          Identical in contained and control -> CPU/model throughput, not containment, not a harness fault."
+    fingerprints: "per task: control T01/T05/T13 vs contained ref 0 mismatches; all 6 t05x6 runs 0 mismatches. Run-level
+                   f4e51337... (T01,T05,T13 runs, both modes) and ed1d5d36... (all t05x6 runs); differs only by task set."
+    trips: "1,089 total, all attributed: 633 meter-connection-from-non-broker + 633 agent-nonloopback (remote 127.0.0.2:11439)
+            = the 6 eval jcode agents in control runs (documented control pattern); 12 ollama-connection-from-non-meter =
+            the harness warm-up curl (suite.sh line 40, 1 token); 1 = probe.sh's control client. Contained stages: 0 TRIP
+            (C-a 2 and C-c 7 are the warm-up curl only). Zero containment violations."
+    integrity: "repo fingerprint UNCHANGED after every suite; git status identical before/after; ~/.jcode UNCHANGED
+                (656 entries, tree 03835244f0155e66f52453456aad705d34f666cf)"
   B_validate:
-    status: blocked on A2 (pre-fix evidence collected)
+    status: "PARTIALLY COMPLETE - pending: 5th T05 rep per mode + T08 post-A2 (both modes)"
     pre_fix: ["probe.sh both modes (above)", "t05x6 3+3 (above)", "gates at 170cbd5 (see HANDOFF test table)"]
-    do_after_A2: ["probe.sh malformed cases", "5 contained + 5 control T05", "child-test 10/10, probe 20/20, byte tests 12/12 + 9/9"]
+    do_after_A2: ["probe.sh malformed cases: DONE (validation_a2_clean)", "child-test 10/10, probe 20/20, byte tests 12/12 + 9/9: DONE",
+                  "5 contained + 5 control T05: 4 + 4 DONE in validation_a2_clean; 1 + 1 pending"]
+    added_2026_10_03: "T08 post-A2 both modes: its pre-A2 control failure was the A2 defect (A0 failure_causes), so its
+                       status cannot be inferred from pre-A2 evidence"
     accept: "no T05 failure ends on an unrecovered incomplete stream; retries bounded and logged"
   H_hardware:          # must be decided BEFORE C; C must run on final hardware + model
-    status: open decision (user)
+    status: BLOCKED - open decision (user); not decided by Hermes
     proven_on_cpu: ["containment, fingerprints, gates and the contained-vs-control comparison do not depend on speed",
-                    "T03/T14/T17 timeouts are slow-but-progressing generation, not hangs or harness faults",
-                    "T08's failure is first-token latency (801 s) on a long context"]
-    hardware_dependent: ["pass rates of T03/T08/T14/T17", "suite wall time (8 tasks ~2-2.5 h per mode)",
+                    "T03/T14/T17 timeouts are slow-but-progressing generation, not hangs or harness faults; none involved an incomplete stream",
+                    "T08 contained: first-token latency (801 s) on a long context",
+                    "T13 post-A2: progressing generation at 3.7-4.7 tok/s until the 2700 s timeout, identical both modes",
+                    "T05 post-A2: 2 of 8 runs graded pass only at the 1201 s timeout (both control): T05 sits at the limit on this CPU"]
+    hardware_dependent: ["pass rates of T03/T08/T13/T14/T17 (and T05 margin)", "suite wall time (8 tasks ~2-2.5 h per mode)",
                          "statistical power of C (more reps per hour)"]
     resolves: "local NVIDIA GPU with enough VRAM for the chosen quant of the 32B model at 32k context (preferred, no egress),
                or remote inference via tunnel-to-loopback + egress policy"
@@ -141,7 +232,7 @@ phases:
     quant_trial: "Q4_K_M vs Q8_0; metric = malformed tool-call rate over >=300 requests, plus tok/s; pick ONE for all evals"
     timeouts: "do not raise task timeouts to manufacture passes; decide them with the hardware, pre-registered for C"
   C_rebaseline:
-    status: blocked on A2 + H
+    status: BLOCKED on H (A2 is complete; C must run on the final hardware + model, so running it now would be discarded)
     tasks: [T13, T14, T17, T04, T05, T03, T08, T01]
     design: "3 reps per mode, alternating; paired analysis across tasks; pre-registered before running"
     primary_metrics: [incomplete_stream_rate, retry_recovery_rate, invariants]
@@ -149,6 +240,7 @@ phases:
     decision_rule: ["invariants hold every contained run", "fingerprints match within mode",
                     "no contained-only failure with a containment-specific error",
                     "contained-vs-control disagreement <= contained-vs-contained", "same-mode disagreement well below 41%"]
+    preconditions_left: ["H decided", "Ollama auto-update off or deliberately re-pinned", "repo AGENTS.md (agent input) updated deliberately"]
   D_gate: "foundation complete -> infrastructure phase"
 
 infrastructure_phase:  # one change at a time, each followed by an 8-task contained + control re-check

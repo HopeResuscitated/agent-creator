@@ -1,56 +1,88 @@
 # Handoff: pick up here
 
-Updated 2026-10-02. Full plan and status: `evals/PLAN.yaml`.
+Updated 2026-10-03. Full plan and status: `evals/PLAN.yaml`. Evidence: `C:\Users\cierra\hermes-bench-archive` (cycle9 = A2).
 
 ## Where we are
-- Containment is proven (all invariants hold; decision rule passed). Harness HEAD `170cbd5`
-  (node pinned `14f50f2`; meter aborts upstream on agent kill `bab3a17`; model server pinned `480ea05`/`ac49b52`;
-  dead meter fails the run `170cbd5`).
-- Done: A0 (node pin; reduced.sh, t05x6.sh and probe.sh all run end to end), A0b (model-server pin; one host
-  setting left to you), A1 (jcode retry investigation).
-- Next: **A2 (approved, not implemented)**, then B, then the hardware decision (H), then C.
-- Main open problem: the model sometimes emits malformed tool calls; Ollama ends the stream without a finish
-  reason, and jcode (A1) treats that as a finished answer and exits 0. That is T13's failure (and T05's flakiness).
+- Containment is proven (all invariants hold; decision rule passed). Harness HEAD `d650c95` on `cierra-wip-2026-09-29`.
+- COMPLETE: A0 (node pin; reduced.sh, t05x6.sh, probe.sh run end to end), A0b (model-server pin; one host setting is
+  yours), A1 (jcode retry investigation), **A2 (incomplete-stream retry; validated on real tasks, clean run VALID)**.
+- PARTIALLY COMPLETE: B (needs the 5th T05 rep per mode, plus T08 post-A2 in both modes).
+- BLOCKED on your hardware decision (H): C re-baseline.
+
+## Pins (run.ts refuses, exit 2, on any mismatch)
+| What | Pin |
+|---|---|
+| Node | patched node 26.7.0 (A0) |
+| jcode | `C:\Users\cierra\jcode-evalpin-a2-bin\jcode.exe`, jcode v0.88.64-dev (`7ed7403f8`), sha256 `f76eff118ae42e9876727095c100420f485e7ea7a8904d3dd62e93f55beaf8e3` (gate `3f9df6c`) |
+| jcode, superseded | `C:\Users\cierra\jcode-evalpin-bin\jcode.exe`, v0.88.63-dev (`1fbb2e1b4`), sha256 `7d467704...` (now refused) |
+| Model server | Ollama 0.34.4; hermes-local-32k digest `1ef2c71e...` |
+
+Runs before `3f9df6c` are not fingerprint-comparable (the jcode hash changed on purpose).
+
+## A2 (what changed and why)
+- When Ollama's tool-call parser rejects malformed model output after text was streamed, it ends the HTTP 200 stream
+  cleanly with no `finish_reason`, no usage and no `[DONE]`. jcode used to treat that as a finished answer and exit 0
+  on partial prose (T13's failure, T05's flakiness, and, found 2026-10-03, T08's control failure in cycle 8).
+- Now jcode treats such an ending as an incomplete stream **if that response handed out no tool call** and retries
+  the request, **at most 2 times**, then fails loudly. Every other ending and HTTP 500 handling are unchanged.
+- "No tool has run" is checked **per response, not per run**. Every real truncation came 11-15 messages into a
+  conversation, after earlier tools had run, so a run-wide rule would never fire. It is safe because tools are dispatched
+  only after a stream ends, and the retried request is byte-identical, so nothing runs twice (tested).
+- Retrying resamples the model; pass-rate gains are partly resampling.
+
+## Clean A2 validation (2026-10-02 19:31-22:58, VALID)
+Started after 3 quiet minutes, with a monitor sampling every 20 s: no external jcode or Ollama client in the window.
+Two earlier attempts are **CONTAMINATED** (manual jcode runs on the same Ollama) and are not used.
+
+| Test | Result |
+|---|---|
+| Gates: node pin, model-server pin, jcode pin (old binary refused) | PASS |
+| contained-child 10/10, security probe 20/20, relay 12/12, contained e2e 9/9, meter kill-abort | PASS |
+| probe.sh both modes | PASS (ran end to end; Ollama-side defect unchanged, as expected: probe bypasses jcode) |
+| T01 contained / control | PASS 135 s / PASS 80 s |
+| T05 contained / control | PASS 422 s / TIMEOUT 1201 s (tests passed when graded) |
+| t05x6 contained (C-a, C-b, C-c) | PASS / PASS / PASS (pre-A2: 2/3) |
+| t05x6 control (D-a, D-b, D-c) | PASS / TIMEOUT 1201 s (tests passed when graded) / PASS (pre-A2: 2/3) |
+| T13 contained / control | TIMEOUT 2704 s / TIMEOUT 2701 s |
+| Per-task fingerprints | match (0 mismatches, control vs contained and all 6 t05x6 runs) |
+| Repo, git status, ~/.jcode | unchanged |
+
+- A2 retries fired 7 times across those tasks; every truncated stream recovered (0 gave up).
+- **T13 is not fixed.** It no longer quits early on partial prose; it keeps working (meter: continuous progress, 3.7-4.7
+  tok/s at ~9.7k-token prompts, first token up to 282 s, one edit took 643 s) until the 2700 s timeout, identically in
+  both modes, and now passes 1 of 3 hidden cases (was 0). The remaining failure is CPU/model throughput.
+- **TRIP lines**: 1,089, all attributed: control agents dialing the meter (633 + 633, documented control pattern), the
+  harness warm-up curl (12), probe.sh's control client (1). Contained stages: 0 from agents. No containment violation.
+
+## Other test status
+| Test | Result |
+|---|---|
+| T03, T14, T17 (cycle 8, pre-A2) | TIMEOUT (CPU: slow but progressing; no truncated streams, so A2 cannot change them; T14 control also had build errors) |
+| T08 contained (cycle 8) | TIMEOUT 1803 s (one turn waited 801 s for the first token) |
+| T08 control (cycle 8) | FAIL at 948 s on the A2 defect, not a timeout (earlier docs said CPU timeout: corrected) |
+| T08 post-A2 | NOT RUN (B, pending) |
+| T04 (cycle 8) | PASS both modes; not re-run after A2 |
+| jcode stream unit tests | PASS 42/42 (7 new) |
+| jcode runtime crate unit tests | 4 FAIL, pre-existing: identical on the pre-A2 and A2 source (provider-profile / API-key autodetection; untouched) |
+| A2 scenario tests (fake server, old vs new binary) | PASS (intended behaviour in all 7 scenarios) |
+| One T01 contained in the first final-gate pass (cycle 8) | FAIL: meter died (harness); cause unknown (output not saved then). Identical rerun PASS. Not reproduced since; a recurrence now stops the run with exit 6 and keeps ev-<label>/meter.out |
+| C re-baseline | BLOCKED (H) |
 
 ## Meter incident (found and fixed in A0)
 When a task hit its timeout, the agent was killed but meter.mjs kept its own request to Ollama open, so Ollama kept
-generating for nobody and the next task queued behind it (R-C: 709 s of dead compute; T13's first turn waited 641 s).
-Fixed in `bab3a17`; verified on real Ollama (the next request answers in ~150 ms). Separately, a meter that dies
-mid-run is now detected (`170cbd5`, suite.sh exit 6) instead of being scored as model FAILs. That happened once in the
-final gates; its cause is unrecoverable because the meter's output was not saved then (now it is, in
-ev-<label>/meter.out). The identical rerun passed.
-
-## Test status at 170cbd5 (2026-10-02)
-| Test | Result |
-|---|---|
-| Node pin: bare v22 refused (run and --stage-tools-only) | PASS |
-| Model-server pin: unreachable / unpinned / tampered version / tampered digest refused | PASS |
-| contained-child-test | PASS 10/10 |
-| security probe | PASS 20/20 |
-| relay byte test | PASS 12/12 |
-| contained end-to-end byte test | PASS 9/9 |
-| meter abort on real Ollama | PASS |
-| T01 contained (git-bash, suite.sh) | PASS, fingerprint 9609faa1, 0 TRIP, repo + ~/.jcode unchanged |
-| T01 control (PowerShell, hostile env) | PASS, fingerprint 9609faa1 |
-| suite.sh / reduced.sh meter-death stop | PASS (exit 6) |
-| reduced.sh R-C / R-D (8 tasks each, pre-A0b) | RUN: contained 6/8, control 5/8, 8/8 fingerprints match |
-| t05x6.sh (pre-A0b) | RUN: contained 2/3, control 2/3; both failures = incomplete stream |
-| probe.sh contained + control | RUN: defect reproduced identically in both modes |
-| T08, T13 | FAIL (both modes; also in baseline) |
-| T03, T17 contained; T14 both modes | TIMEOUT (model still working; CPU) |
-| One T01 contained in the first final-gate pass | FAIL: meter died (harness), rerun PASS; now caught by exit 6 |
-| B validation, C re-baseline | NOT RUN (blocked on A2 / H) |
+generating for nobody and the next task queued behind it. Fixed in `bab3a17` (re-verified in the clean run: request
+after a killed generation answers in 173 ms). A meter that dies mid-run is detected (`170cbd5`, exit 6).
 
 ## Open decisions (yours)
-1. **A2 fix**: APPROVED 2026-10-02, not yet implemented as of this commit: the jcode-native fix (treat a stream that ends without finish_reason/[DONE] as a retryable
-   incomplete stream, cap 2, only when no tool executed). It changes the agent
-   binary, so it means a new jcode pin and a re-baseline.
-2. **Hardware** before the re-baseline: NVIDIA GPU? How much VRAM? (CPU at ~7 tok/s causes the T03/T08/T14/T17 timeouts
-   and makes every benchmark take hours.) Timeouts are not raised to make tasks pass.
-3. **Ollama auto-update**: turn it off in the Ollama app settings. v0.35.1 is already downloaded and installs on the
-   next app restart; the new pin gate will then refuse to run until you re-pin deliberately.
-4. **Push state**: origin already has this branch at `6ca495a` (another session pushed it), though the plan said
-   "local only". Local is 7 commits ahead. Decide whether this branch should be on origin at all; Hermes has not pushed.
+1. **Hardware (H)**, before C: NVIDIA GPU? How much VRAM? CPU inference (~4-10 tok/s) causes the T03/T08/T13/T14/T17
+   timeouts and leaves T05 at its limit. Timeouts are not raised to make tasks pass.
+2. **Ollama auto-update**: still ON (`auto_update_enabled=1` in Ollama's settings DB) and the 0.35.1 installer is already
+   downloaded (`%LOCALAPPDATA%\Ollama\updates_v2\d5a1390e...\OllamaSetup.exe`); it installs on the next Ollama app restart.
+   The pin gate will then refuse every run until you re-pin deliberately (a new environment + baseline). To keep 0.34.4:
+   Ollama app Settings -> turn off automatic updates.
+3. **Push state**: origin has this branch at `6ca495a` (pushed by another session); local is ahead. jcode-evalpin has no
+   upstream. Decide whether either belongs on a remote. Hermes has not pushed.
+4. **Exclusive machine during benchmarks**: running jcode/Ollama by hand during a run contaminates it (happened twice).
 5. **Hermes compression model**: change `auxiliary.compression.model` in Hermes `config.yaml` away from the free OpenRouter model.
 
 ## To resume in a new Claude chat
@@ -59,16 +91,8 @@ Paste:
 Read evals/PLAN.yaml and evals/HANDOFF.md in C:\Users\cierra\Desktop\agent creator. Then tell me in 3 lines where we are and what's next. Keep answers short; I'm cost-conscious.
 ```
 
-## Next Hermes prompt (fresh session, Opus) - after you decide A2
-```
-Cost mode: fresh session. Read only evals/PLAN.yaml and evals/HANDOFF.md in C:\Users\cierra\Desktop\agent creator.
-A2 decision: <approved option>. Implement it in C:\Users\cierra\jcode-evalpin (one commit), build a new pinned binary,
-record its sha256, run the unit tests for the stream parser, then phase B per PLAN.yaml (probe.sh, T05 5+5, all gates).
-Give me exact PowerShell commands for any long run so I run them myself. Stop after each step. Update PLAN.yaml status fields.
-```
-
 ## Notes
-- Evidence archive (safe from cache pruning): `C:\Users\cierra\hermes-bench-archive` (cycle8 = this validation).
+- Rebuilding jcode: see `pins.jcode_build` in PLAN.yaml (GNU toolchain first on PATH; set `JCODE_BUILD_GIT_HASH`).
 - Chat UI specs (`data/spec-chat-ui-*.md`) are blocked on roadmap Step 2. A review found 10 gaps to close first:
   attach-vs-no-attachments conflict, border contrast ~1.3:1, missing meta/dark-mode colors, no `system` role style,
   no task-state UI, undefined retry, ambiguous group timestamp, hover-only actions on touch, untestable visual gate,
