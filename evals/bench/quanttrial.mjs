@@ -19,6 +19,8 @@
 // Informational: edits_as_string = an edit tool call whose `edits` is a string (the A3 shape).
 // Summary (stdout + <out>.summary.json): counts, malformed rate with a Wilson 95% interval, median first-token
 // latency, median and aggregate decode tok/s (completion_tokens / (total - ttfb)), prompt-token range.
+// First-token times are COLD-cache: a replayed request gets no prefix reuse from earlier turns, unlike a live agent
+// conversation, so they overstate in-agent latency. Compare quants with each other, not with agent-run meter numbers.
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import crypto from 'node:crypto';
 const a = process.argv.slice(2); const opt = { requests: [], reps: 2, upstream: '127.0.0.1:11434', timeoutS: 900, limit: 0 };
 for (let i = 0; i < a.length; i++) {
