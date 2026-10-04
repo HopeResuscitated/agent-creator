@@ -10,6 +10,12 @@
 # and the generated agent config (config-equivalent control), so containment is the only variable.
 # Writes <out>/ev-<label>/ (meter.jsonl, raw/, watch.log, fp-*.txt, ev-*.txt, suite.out, ...),
 # <out>/run-<label>.log is the caller's job; analysis-<label>.txt and classify-<label>.txt go to <out>.
+#
+# Exit codes (first matching wins; every check still runs and is printed first):
+#   0 done   1 meter could not start / port busy   2 usage   3 node gate (node.sh)
+#   6 meter died during the run   7 machine slept during the run   8 run.ts failed or refused (e.g. pin gate exit 2)
+#   10 integrity: repo fingerprint or ~/.jcode changed during the run   130 interrupted (Ctrl+C / TERM / HUP)
+# Any non-zero exit means the run is NOT evidence.
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/node.sh" || exit 3
 [ "${1:-}" = "--out" ] || { echo "usage: suite.sh --out <dir> <label> <contain|control> [run.ts args...]" >&2; exit 2; }
@@ -22,7 +28,24 @@ EV=$OUT/ev-$LABEL; WEV=$WOUT/ev-$LABEL
 MODEL=${MODEL:-hermes-local-32k}
 METER_LISTEN=${METER_LISTEN:-127.0.0.2:11439}; METER_UPSTREAM=${METER_UPSTREAM:-127.0.0.1:11434}
 MHOST=${METER_LISTEN%:*}; MPORT=${METER_LISTEN##*:}
+# A meter (or anything else) already listening on METER_LISTEN would be adopted below as "the meter" and would log
+# this run's traffic into another run's evidence: refuse instead.
+if powershell.exe -NoProfile -Command "if (Get-NetTCPConnection -LocalAddress $MHOST -LocalPort $MPORT -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"; then
+  echo "port $METER_LISTEN is already in use (a leftover meter from an interrupted suite?): not starting" >&2; exit 1
+fi
 rm -rf "$EV"; mkdir -p "$EV" "$OUT/outside"
+# Interrupt cleanup: stop the watchdog, keep-awake and meter this suite started, then exit 130 (not evidence).
+MPID_BASH=; MPID=; WPID=; KAPID=
+cleanup_interrupt() {
+  trap - INT TERM HUP
+  echo "INTERRUPTED: stopping meter/watch/keepawake; this run is NOT evidence" >&2
+  touch "$EV/STOP" "$EV/KASTOP" "$EV/INTERRUPTED" 2>/dev/null
+  [ -n "$MPID_BASH" ] && kill "$MPID_BASH" 2>/dev/null
+  [ -n "$MPID" ] && powershell.exe -NoProfile -Command "Stop-Process -Id $MPID -Force -ErrorAction SilentlyContinue" 2>/dev/null
+  [ -n "$WPID" ] && wait "$WPID" 2>/dev/null; [ -n "$KAPID" ] && wait "$KAPID" 2>/dev/null
+  echo SUITE-DONE; exit 130
+}
+trap cleanup_interrupt INT TERM HUP
 # Power integrity: keep the machine from idle-sleeping for the whole suite (best effort, process-scoped), and after
 # the run check the System log for any sleep in the window (sleepcheck.ps1): a run that slept is not evidence (exit 7).
 PSTART=$(date -Iseconds)
@@ -36,7 +59,7 @@ METER_LOG="$WEV/meter.jsonl" METER_RAW="$WEV/raw" METER_LISTEN=$METER_LISTEN MET
 sleep 2
 MPID=$(powershell.exe -NoProfile -Command "(Get-NetTCPConnection -LocalAddress $MHOST -LocalPort $MPORT -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess" | tr -d '\r')
 echo "meter pid=$MPID"
-[ -n "$MPID" ] || { echo "meter not listening on $METER_LISTEN"; kill $MPID_BASH 2>/dev/null; exit 1; }
+[ -n "$MPID" ] || { echo "meter not listening on $METER_LISTEN"; kill $MPID_BASH 2>/dev/null; touch "$EV/KASTOP"; wait $KAPID 2>/dev/null; exit 1; }
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WBENCH/watch.ps1" -Out "$(cygpath -w "$EV/watch.log")" -Stop "$(cygpath -w "$EV/STOP")" \
   -MeterPid "$MPID" -OutsideDir "$(cygpath -w "$OUT/outside")" -MeterAddr "$MHOST" -MeterPort "$MPORT" -OllamaPort "${METER_UPSTREAM##*:}" & WPID=$!
 date -Iseconds > "$EV/suite-start.txt"
@@ -44,7 +67,8 @@ date -Iseconds > "$EV/suite-start.txt"
 curl -s -m 600 "http://$METER_UPSTREAM/api/generate" -d "{\"model\":\"$MODEL\",\"prompt\":\"ok\",\"stream\":false,\"options\":{\"num_predict\":1}}" > "$EV/warmup.json"; echo "warmup rc=$?"
 EXTRA=()
 [ "$MODE" = control ] && EXTRA=(--no-contain-unsafe)
-( cd "$REPO" && "$NODE_BIN" evals/run.ts --agent jcode --provider ollama --model "$MODEL" --model-upstream "$METER_LISTEN" "${JARGS[@]}" "${EXTRA[@]}" "$@" ) 2>&1 | tee "$EV/suite.out"
+( cd "$REPO" && "$NODE_BIN" evals/run.ts --agent jcode --provider ollama --model "$MODEL" --model-upstream "$METER_LISTEN" "${JARGS[@]}" "${EXTRA[@]}" "$@" ) 2>&1 | tee "$EV/suite.out"; RUN_RC=${PIPESTATUS[0]}
+echo "run.ts exit=$RUN_RC" | tee -a "$EV/suite.out"
 date -Iseconds > "$EV/suite-end.txt"
 # The meter is every task's model upstream: if it died mid-run, every later task was graded against a refused
 # connection (a harness failure, not a model result). Say so loudly; the run is not evidence.
@@ -55,8 +79,9 @@ wait $WPID 2>/dev/null
 "$NODE_BIN" "$WBENCH/fp.mjs" "$WEV/fp-post.txt" >/dev/null
 "$NODE_BIN" "$WBENCH/evfp.mjs" "$WEV/ev-post.txt" >/dev/null
 ( cd "$REPO" && git status --short > "$EV/status-post.txt" )
-"$NODE_BIN" "$WBENCH/fpcmp.mjs" "$WEV/fp-pre.txt" "$WEV/fp-post.txt"
-cmp -s "$EV/ev-pre.txt" "$EV/ev-post.txt" && echo "~/.jcode fingerprint UNCHANGED" || echo "~/.jcode fingerprint DIFFERS"
+INTEGRITY=1
+"$NODE_BIN" "$WBENCH/fpcmp.mjs" "$WEV/fp-pre.txt" "$WEV/fp-post.txt" || INTEGRITY=0
+if cmp -s "$EV/ev-pre.txt" "$EV/ev-post.txt"; then echo "~/.jcode fingerprint UNCHANGED"; else echo "~/.jcode fingerprint DIFFERS"; INTEGRITY=0; fi
 echo "TRIP lines: $(grep -c ' TRIP ' "$EV/watch.log")"
 grep -h "Effective-config fingerprint" "$EV/suite.out"
 RUNDIR=$(grep -h "^Report: " "$EV/suite.out" | sed 's/^Report: //; s/\r$//; s/[\\/]summary\.md$//')
@@ -70,4 +95,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WBENCH/sleepcheck.ps1"
 grep -E "^(power now|POWER WARNING|SLEEP DETECTED)" "$EV/power.txt" | tr -d '\r'
 if [ $METER_ALIVE = 0 ]; then echo "METER DIED DURING THE RUN (see $EV/meter.out): results are NOT evidence"; tail -5 "$EV/meter.out"; echo SUITE-DONE; exit 6; fi
 if [ $SLEPT != 0 ]; then echo "MACHINE SLEPT DURING THE RUN (see $EV/power.txt): results are NOT evidence"; echo SUITE-DONE; exit 7; fi
+if [ "$RUN_RC" != 0 ]; then echo "RUN.TS FAILED OR REFUSED (exit $RUN_RC, see $EV/suite.out): results are NOT evidence"; echo SUITE-DONE; exit 8; fi
+if [ $INTEGRITY = 0 ]; then echo "INTEGRITY: repo or ~/.jcode changed during the run (see fp-*.txt / ev-*.txt): results are NOT evidence"; echo SUITE-DONE; exit 10; fi
 echo SUITE-DONE

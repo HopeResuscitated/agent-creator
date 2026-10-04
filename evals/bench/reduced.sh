@@ -6,7 +6,8 @@
 #
 # Gate before each run: repo HEAD (if --expect-head), no tracked changes, no client connected to Ollama, no
 # jcode.exe running. After each run, with --ref: every task's effective-config fingerprint must equal the
-# reference run's for the same task, else the sequence stops (exit 4). Log: <out>/reduced.log.
+# reference run's for the same task, else the sequence stops (exit 4). Any non-zero suite.sh exit (6 meter died,
+# 7 slept, 8 run.ts failed/refused, 10 integrity, 130 interrupted, ...) also stops it with that code. Log: <out>/reduced.log.
 # Cycle-6 reduced benchmark: reduced.sh --out <dir> --ref <C1>/effective-config.json D1-R:control C2-R:contain D2-R:control
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/node.sh" || exit 3
@@ -54,6 +55,9 @@ for r in "${RUNS[@]}"; do
   echo "=== $(date -Iseconds) end $L :: $(grep -E '^Score|TRIP lines|fingerprint (UNCHANGED|DIFFERS)|UNCHANGED|DIFFERS' "$OUT/run-$L.log" | tr '\n' ' ' | cut -c1-300)" | tee -a "$LOG"
   [ $SRC = 6 ] && { echo "STOP: meter died during $L ($OUT/ev-$L/meter.out); $L is not evidence" | tee -a "$LOG"; exit 6; }
   [ $SRC = 7 ] && { echo "STOP: machine slept during $L ($OUT/ev-$L/power.txt); $L is not evidence" | tee -a "$LOG"; exit 7; }
+  [ $SRC = 8 ] && { echo "STOP: run.ts failed or refused during $L ($OUT/ev-$L/suite.out); $L is not evidence" | tee -a "$LOG"; exit 8; }
+  [ $SRC = 10 ] && { echo "STOP: repo or ~/.jcode changed during $L ($OUT/ev-$L/fp-*.txt, ev-*.txt); $L is not evidence" | tee -a "$LOG"; exit 10; }
+  [ $SRC != 0 ] && { echo "STOP: suite exit $SRC during $L; $L is not evidence" | tee -a "$LOG"; exit $SRC; }
   fpcheck "$L" || { echo "STOP: fingerprint mismatch in $L" | tee -a "$LOG"; exit 4; }
 done
 echo REDUCED-DONE | tee -a "$LOG"
