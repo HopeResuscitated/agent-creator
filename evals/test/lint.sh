@@ -21,6 +21,6 @@ powershell.exe -NoProfile -Command "\$bad=0; foreach (\$f in '$PS'.Split('|')) {
 # curl -o /dev/null | -o /tmp/... | --output /dev/null in scripts (comments excluded)
 hits=$(git grep -n -E 'curl[^#]*(-o|--output)[ =]+/(dev/null|tmp)' -- '*.sh' '*.ps1' '*.mjs' | grep -v '^[^:]*:[0-9]*:[[:space:]]*#' || true)
 [ -n "$hits" ] && bad "native curl given an MSYS path: $hits"
-hits=$(git grep -n -E '(^|[ "=])/tmp/' -- 'evals/*.sh' 'evals/*.ps1' 'evals/*.mjs' 'evals/*.ts' | grep -v '^[^:]*:[0-9]*:[[:space:]]*(#|//)' || true)
+hits=$(git grep -n -E '(^|[ "=])/tmp/' -- 'evals/*.sh' 'evals/*.ps1' 'evals/*.mjs' 'evals/*.ts' | grep -vE '^[^:]*:[0-9]*:[[:space:]]*(#|//)' || true)
 [ -n "$hits" ] && bad "bare /tmp path: $hits"
 [ $F = 0 ] && { echo "LINT PASS"; exit 0; } || { echo "LINT FAIL ($F)"; exit 1; }

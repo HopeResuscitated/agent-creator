@@ -55,6 +55,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WBENCH/keepawake.ps1" 
 "$NODE_BIN" "$WBENCH/fp.mjs" "$WEV/fp-pre.txt" >/dev/null
 "$NODE_BIN" "$WBENCH/evfp.mjs" "$WEV/ev-pre.txt" >/dev/null
 ( cd "$REPO" && git rev-parse HEAD > "$EV/head.txt" && git status --short > "$EV/status-pre.txt" )
+# record the running Ollama server's effective settings (observed, not pinned; informational)
+"$NODE_BIN" "$WBENCH/ollamaenv.mjs" --expect "$WBENCH/ollama-server-env.observed.json" --out "$WEV/ollama-server-env.txt" | tail -1
 JARGS=()
 if [ -n "${JCODE_BIN:-}" ]; then sha256sum "$JCODE_BIN" > "$EV/jcode-sha.txt"; JARGS=(--jcode-bin "$JCODE_BIN"); else echo "JCODE_BIN unset: run.ts resolves jcode on PATH (not pinned)" | tee "$EV/jcode-sha.txt"; fi
 METER_LOG="$WEV/meter.jsonl" METER_RAW="$WEV/raw" METER_LISTEN=$METER_LISTEN METER_UPSTREAM=$METER_UPSTREAM "$NODE_BIN" "$WBENCH/meter.mjs" > "$EV/meter.out" 2>&1 & MPID_BASH=$!

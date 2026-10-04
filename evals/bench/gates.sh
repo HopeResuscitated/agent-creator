@@ -35,6 +35,9 @@ gate ollama-version-match "$([ "$ver" = "$wver" ] && echo 1)" "running $ver vs p
 dig=$(curl -s -m 10 http://127.0.0.1:11434/api/tags | grep -o '"name":"hermes-local-32k:latest"[^}]*"digest":"[0-9a-f]*"' | sed 's/.*"digest":"\([0-9a-f]*\)"/\1/'); wdig=$(pinval hermes-local-32k)
 gate model-digest-match "$([ -n "$dig" ] && [ "$dig" = "$wdig" ] && echo 1)" "hermes-local-32k ${dig:0:16} vs pin ${wdig:0:16}"
 
+# INFO (not a gate): Ollama server settings that are OBSERVED, not pinned (bench/ollama-server-env.observed.json)
+echo "INFO ollama-server-env | $("$NODE_BIN" evals/bench/ollamaenv.mjs --expect evals/bench/ollama-server-env.observed.json | tail -1)" | tee -a "$R"
+
 # 2. negative pins: run.ts refuses (exit 2) before anything is staged
 bsha=$(sha256sum "$BARE" 2>/dev/null | cut -c1-64)
 if [ -z "$bsha" ] || [ "$bsha" = "$(pinval node_sha256)" ]; then gate node-pin-refusal "" "--bare-node $BARE missing or IS the pinned node: cannot test the refusal"
