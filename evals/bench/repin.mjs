@@ -9,6 +9,10 @@
 //   --a3-sha <sha256>         expected A3 hash (default 42ed4012...0bab7; a rebuilt binary needs its own value + unit run)
 //   --ollama-version <v>      the version that will be pinned (default: the current pin 0.34.4)
 //   --quant <name>            stage 12: the chosen quant as recorded in PLAN.yaml (e.g. Q4_K_M)
+//   --target CPU|GPU          default: PLAN.yaml phases.H_hardware.target_environment.placement (bench/target.mjs);
+//                             recorded at stage 1, every later stage must use the same target. CPU (decided 2026-10-04):
+//                             existing machine, model unchanged (stage 3 verifies it is the validated CPU model, 100% CPU,
+//                             nothing rebuilt); GPU: the former dedicated-GPU plan (stage 3 verifies the num_gpu rebuild)
 //
 // Rules (REPIN.md "A FAIL stops the procedure ... restart from step 1"):
 //   - stage N runs only if every earlier stage is PASS in <R>/repin-record.json; a FAIL marks the record failed and
@@ -22,6 +26,7 @@
 //     which loads the model if it is not loaded
 import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto'; import http from 'node:http';
 import { execFileSync, spawnSync } from 'node:child_process'; import { jcodeHomeFingerprint } from './fakeprov.mjs'; import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url';
+import { targetOf, TARGETS, hardwareCheck, placementOk } from './target.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
@@ -79,18 +84,36 @@ const run = (cmd, args, opts = {}) => { const r = spawnSync(cmd, args, { encodin
 const git = (...a) => run('git', ['-C', REPO, ...a]);
 const win = (p) => p.replace(/\//g, '\\');
 
+/** Stage 3 for the CPU target: nothing is rebuilt; hermes-local-32k must still be the validated CPU model (same digest,
+ *  num_gpu 0 in its Modelfile) and load 100% on the CPU. A different quant on the CPU target is a new model decision,
+ *  not something this stage accepts. */
+async function stage3Cpu({ R, dry, opts }) {
+  const tags = await api('GET', '/api/tags'); const cur = tags?.models?.find((m) => m.name === 'hermes-local-32k:latest');
+  const show = cur ? await api('POST', '/api/show', JSON.stringify({ model: 'hermes-local-32k' })) : null;
+  if (!dry && show) fs.writeFileSync(path.join(R, 'Modelfile.cpu'), show.modelfile ?? '');
+  if (cur) await api('POST', '/api/generate', JSON.stringify({ model: 'hermes-local-32k', prompt: 'ok', stream: false, options: { num_predict: 1 } }));
+  const p = (await api('GET', '/api/ps'))?.models?.find((m) => m.name === 'hermes-local-32k:latest');
+  const q = show?.details?.quantization_level ?? null;
+  return { checks: [
+    { name: 'model-unchanged (CPU target)', ok: cur?.digest === DEFAULTS.cpuDigest, detail: cur ? `hermes-local-32k ${cur.digest.slice(0, 16)} vs validated CPU model ${DEFAULTS.cpuDigest.slice(0, 16)}` : 'hermes-local-32k missing' },
+    { name: 'modelfile-forces-cpu', ok: /^PARAMETER num_gpu 0\s*$/m.test(show?.modelfile ?? ''), detail: show ? 'PARAMETER num_gpu 0 present' : 'no modelfile' },
+    { name: 'quant-as-pinned', ok: !!q && (!opts.quant || opts.quant === q), detail: `hermes-local-32k ${q ?? '?'}${opts.quant ? `, --quant ${opts.quant}` : ''} (CPU target: the model is not rebuilt)` },
+    { name: 'placement-100-cpu', ok: placementOk('CPU', p), detail: p ? `size_vram ${p.size_vram} of ${p.size}` : 'not loaded' },
+  ], data: { model_digest: cur?.digest ?? null, quantization_level: q, from_differs: false, size: p?.size ?? null, size_vram: p?.size_vram ?? null } };
+}
+
 /** Each stage returns { status: PASS|FAIL, checks: [{ name, ok, detail }], data? }. dry => read-only subset. */
 const STAGE_IMPL = {
-  async '1'({ R, dry }) {
+  async '1'({ R, dry, opts }) {
     const out = path.join(dry ? fs.mkdtempSync(path.join(process.env.TEMP ?? REPO, 'repin-dry-')) : R, 'hwprofile.json');
     run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', win(path.join(HERE, 'hwprofile.ps1')), '-Out', win(out)]);
     let h = null; try { h = JSON.parse(fs.readFileSync(out, 'utf8').replace(/^\uFEFF/, '')); } catch { /* */ }
     const oe = run(process.execPath, [path.join(HERE, 'ollamaenv.mjs'), '--json']); let ollamaEnv = null; try { ollamaEnv = JSON.parse(oe.out).material; } catch { /* */ }
-    const gpus = h?.nvidia?.gpus ?? [];
-    const rocm = !!(h?.rocm?.rocm_smi || h?.rocm?.hipinfo);
+    let base = null; try { base = JSON.parse(fs.readFileSync(path.join(REPO, 'evals', 'perf', 'cpu-baseline-hwprofile.json'), 'utf8').replace(/^\uFEFF/, '')); } catch { /* */ }
+    const hw = hardwareCheck(opts.target, h, base);
     return { checks: [
       { name: 'hwprofile-written', ok: !!h, detail: out },
-      { name: 'gpu-visible (discrete: nvidia-smi or ROCm)', ok: gpus.length > 0 || rocm, detail: gpus.length ? gpus.map((g) => `${g.name} ${g.memory_total_mib} MiB driver ${g.driver}`).join('; ') : rocm ? 'ROCm tools present' : 'no nvidia-smi GPU, no ROCm (integrated Vulkan iGPU only is not the hardware change)' },
+      { name: `target-hardware (${opts.target})`, ok: hw.ok, detail: hw.detail },
       { name: 'on-AC', ok: /^(AC|no battery)/.test(String(h?.power?.source)), detail: String(h?.power?.source) },
       { name: 'ollama-server-env-recorded', ok: !!ollamaEnv, detail: ollamaEnv ? `KV ${ollamaEnv.OLLAMA_KV_CACHE_TYPE}, FA ${ollamaEnv.OLLAMA_FLASH_ATTENTION}, ctx ${ollamaEnv.OLLAMA_CONTEXT_LENGTH}` : 'unreadable' },
     ], data: { hwprofile: dry ? null : out, ollama_env: ollamaEnv }, cleanup: dry ? path.dirname(out) : null };
@@ -100,6 +123,7 @@ const STAGE_IMPL = {
     return { checks: [{ name: 'ollama-version', ok: v === want, detail: `running ${v ?? 'unreachable'}, will pin ${want}${v && v !== env.model_server.ollama_version && !opts.ollamaVersion ? ' (auto-update ran? reinstall or pass --ollama-version deliberately)' : ''}` }], data: { ollama_version: want } };
   },
   async '3'({ R, dry, opts }) {
+    if (opts.target === 'CPU') return stage3Cpu({ R, dry, opts });
     const otherQuant = !!opts.quant && opts.quant !== 'Q4_K_M';   // a deliberate quant switch (REPIN step 12): FROM may differ
     const tags = await api('GET', '/api/tags'); const find = (n) => tags?.models?.find((m) => m.name === `${n}:latest` || m.name === n);
     const backup = find(DEFAULTS.cpuBackup), cur = find('hermes-local-32k');
@@ -156,7 +180,7 @@ const STAGE_IMPL = {
     }
     fs.writeFileSync(ENVF, next);
     const dc = git('diff', '--check'); const add = git('add', 'evals/baseline-env.json');
-    const msg = `pin: jcode A3 710560f91 (${want.jcodeSha.slice(0, 12)}), hermes-local-32k GPU ${want.digest.slice(0, 12)}${want.ollamaVersion ? `, Ollama ${want.ollamaVersion}` : ''}`;
+    const msg = `pin: jcode A3 710560f91 (${want.jcodeSha.slice(0, 12)}), hermes-local-32k ${opts.target ?? '?'} ${want.digest.slice(0, 12)}${want.ollamaVersion ? `, Ollama ${want.ollamaVersion}` : ''}`;
     const cm = dc.code === 0 && add.code === 0 ? git('commit', '-q', '-m', msg, '--', 'evals/baseline-env.json') : { code: 1, out: dc.out };
     checks.push({ name: 'pin-committed', ok: cm.code === 0, detail: cm.code === 0 ? `${git('rev-parse', '--short', 'HEAD').out.trim()} ${msg}` : cm.out.slice(0, 200) });
     return { checks, data: { env_sha: sha256(ENVF), pins, pin_commit: cm.code === 0 ? git('rev-parse', 'HEAD').out.trim() : null } };
@@ -207,7 +231,9 @@ function hashTree(dir, base = dir, out = {}) {
 export async function main(argv, { impl = STAGE_IMPL, envFile = ENVF } = {}) {
   const flag = (n) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : undefined; };
   const R = flag('out'); if (!R) { console.error('usage: repin.mjs --out <R dir> (--dry-run | --stage <id> [--apply] | --status | --restart)'); return 2; }
-  const opts = { a3Bin: flag('a3-bin') ?? DEFAULTS.a3Bin, a3Sha: flag('a3-sha') ?? DEFAULTS.a3Sha, ollamaVersion: flag('ollama-version'), quant: flag('quant') };
+  let planTarget = null; try { planTarget = targetOf(createRequire(path.join(REPO, 'package.json'))('js-yaml').load(fs.readFileSync(path.join(REPO, 'evals', 'PLAN.yaml'), 'utf8'))); } catch { /* */ }
+  const target = (flag('target') ?? planTarget ?? '').toUpperCase();
+  const opts = { a3Bin: flag('a3-bin') ?? DEFAULTS.a3Bin, a3Sha: flag('a3-sha') ?? DEFAULTS.a3Sha, ollamaVersion: flag('ollama-version'), quant: flag('quant'), target };
   const env = JSON.parse(fs.readFileSync(envFile, 'utf8'));
   const recF = path.join(R, 'repin-record.json');
   const load = () => parseRecord(fs.existsSync(recF) ? fs.readFileSync(recF, 'utf8') : null);
@@ -221,6 +247,8 @@ export async function main(argv, { impl = STAGE_IMPL, envFile = ENVF } = {}) {
     for (const f of moving) fs.renameSync(path.join(R, f), path.join(arch, f));
     console.log(`archived ${moving.join(', ')} -> ${arch}; start again at stage 1`); return 0;
   }
+  const needsTarget = !argv.includes('--status') && !argv.includes('--restart');
+  if (needsTarget && !TARGETS.includes(target)) { console.log(`REFUSED: no target (give --target CPU|GPU or set PLAN.yaml phases.H_hardware.target_environment.placement)`); return 2; }
   if (argv.includes('--dry-run')) {
     console.log(`REPIN DRY RUN ${new Date().toISOString()} (read-only; nothing recorded, edited or committed)`);
     const fake = { stages: {} }; let any = false;
@@ -230,7 +258,7 @@ export async function main(argv, { impl = STAGE_IMPL, envFile = ENVF } = {}) {
       for (const c of r.checks) { console.log(`  ${id.padEnd(5)} ${c.ok ? 'ok   ' : 'WOULD FAIL'} ${c.name}: ${c.detail}`); if (!c.ok) any = true; }
       fake.stages[id] = { status: 'PASS', data: r.data };
     }
-    console.log(any ? 'REPIN DRY RUN: NOT READY (expected before the hardware change)' : 'REPIN DRY RUN: every read-only check passes');
+    console.log(any ? `REPIN DRY RUN (target ${target}): NOT READY` : `REPIN DRY RUN (target ${target}): every read-only check passes`);
     return 0;
   }
   const id = flag('stage'); if (!id) { console.error('give --stage <id>, --dry-run, --status or --restart'); return 2; }
@@ -239,6 +267,7 @@ export async function main(argv, { impl = STAGE_IMPL, envFile = ENVF } = {}) {
   fs.mkdirSync(R, { recursive: true });
   let record; try { record = load(); } catch (e) { console.log(`REFUSED stage ${id}: ${recF} is unreadable (${e.message}); inspect it, then --restart (archives it)`); return 1; }
   const why = gate(record, id, sha256(envFile)); if (why) { console.log(`REFUSED stage ${id}: ${why}`); return 1; }
+  if (record.target && record.target !== target) { console.log(`REFUSED stage ${id}: this re-pin was started for target ${record.target}, not ${target} (--restart for a new target)`); return 1; }
   const own = { '1': ['hwprofile.json'], '3': ['Modelfile.cpu', 'Modelfile.new'], '7-10': ['gates'], '11': ['t01x4'] }[id] ?? [];
   const stale = own.filter((f) => fs.existsSync(path.join(R, f)));
   if (stale.length) { console.log(`REFUSED stage ${id}: ${stale.join(', ')} already exist in ${R} from an unrecorded run (use --restart to archive, or a new --out)`); return 1; }
@@ -248,6 +277,7 @@ export async function main(argv, { impl = STAGE_IMPL, envFile = ENVF } = {}) {
   const artifacts = {}; for (const f of own) { const p = path.join(R, f); if (fs.existsSync(p)) Object.assign(artifacts, fs.statSync(p).isDirectory() ? Object.fromEntries(Object.entries(hashTree(p)).map(([k, v]) => [`${f}/${k}`, v])) : { [f]: sha256(p) }); }
   record.stages[id] = { status: ok ? 'PASS' : 'FAIL', at: new Date().toISOString(), head: git('rev-parse', 'HEAD').out.trim(), checks: r.checks, data: r.data ?? null, artifacts, env_sha: sha256(envFile) };
   if (!ok) { record.failed = true; record.failed_stage = id; }
+  if (id === '1') record.target = target;
   if (ok && id === '1') record.ollama_env = r.data?.ollama_env ?? null;
   if (ok && id === '4') record.jcode_bin = r.data?.jcode_bin;
   if (ok && id === '5-6') record.pins = r.data?.pins;

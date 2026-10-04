@@ -6,22 +6,26 @@
 //
 // Requirements (from PLAN.yaml C_rebaseline.preconditions_left and REPIN.md; no new acceptance criteria):
 //   repin      <repin dir>/repin-record.json from repin.mjs: stages 1-12 PASS, not failed, its pins == baseline-env.json
-//   pins       baseline-env.json no longer pins A2 / the CPU model (a re-pin happened); committed (tree clean)
+//   target     PLAN.yaml phases.H_hardware.target_environment.placement = CPU | GPU (bench/target.mjs); the re-pin record
+//              was made for that target. CPU (decided 2026-10-04): the existing machine, model unchanged, 100% CPU
+//   pins       baseline-env.json no longer pins A2 (the A3 re-pin happened); model pin fits the target (CPU: the validated
+//              CPU model digest; GPU: a rebuilt model); committed (tree clean)
 //   plan       PLAN.yaml: H_hardware not BLOCKED; A3 no longer "NOT YET AUTHORITATIVE"; C_rebaseline status NOT STARTED;
 //              C pre-registered: C_rebaseline.preregistration with tasks, reps, order, timeouts, decision_rule, quant
 //   live       pinned jcode binary (record's jcode_bin) hash == pin; Ollama version == pin; model digest == pin;
-//              model placement 100% GPU (model must be loaded: --warm loads it); Ollama server settings == the
+//              model placement = the target's (CPU: size_vram 0; GPU: 100% GPU; model must be loaded: --warm loads it); Ollama server settings == the
 //              settings recorded at the re-pin (ollamaenv); Ollama auto-update OFF (db.sqlite, read-only)
 //   machine    on AC; no jcode.exe running; meter port 127.0.0.2:11439 free; no other client connected to Ollama
 //   tests      offline suite (node --test evals/test/*.test.mjs) and lint.sh pass (--skip-tests: BLOCKED, never READY)
 import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto'; import http from 'node:http';
 import { execFileSync, spawnSync } from 'node:child_process'; import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url';
+import { targetOf, placementOk, requiredModelDigest, CPU_MODEL_DIGEST } from './target.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const require = createRequire(path.join(REPO, 'package.json'));
 export const A2_SHA = 'f76eff118ae42e9876727095c100420f485e7ea7a8904d3dd62e93f55beaf8e3';
-export const CPU_MODEL_DIGEST = '1ef2c71ed2065896b080104a0499a15b320f9ea3f9049bacdadc42e71630b60f';
+export { CPU_MODEL_DIGEST };
 export const PREREG_KEYS = ['tasks', 'reps', 'order', 'timeouts', 'decision_rule', 'quant'];
 export const REPIN_STAGES = ['1', '2', '3', '4', '5-6', '7-10', '11', '12'];
 
@@ -30,6 +34,8 @@ export function staticChecks({ plan, env, record, gitClean, branch }) {
   const out = []; const c = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? '' : why });
   c('git-clean', gitClean === true, 'working tree has uncommitted changes');
   c('branch', !plan?.branch || plan.branch === branch, `checked-out branch ${branch} != PLAN.yaml branch ${plan?.branch}`);
+  const target = targetOf(plan);
+  c('plan-target-declared', !!target, 'PLAN.yaml phases.H_hardware.target_environment.placement is not CPU or GPU');
   c('repin-record', !!record, 'no repin-record.json (run evals/bench/repin.mjs through stage 12)');
   if (record) {
     c('repin-not-failed', record.failed !== true, `re-pin record is marked FAILED at stage ${record.failed_stage}: restart the re-pin from step 1`);
@@ -39,12 +45,16 @@ export function staticChecks({ plan, env, record, gitClean, branch }) {
       'baseline-env.json pins differ from the pins the re-pin validated (re-run the re-pin)');
   }
   c('pin-not-a2', env.jcode_sha256 !== A2_SHA, 'baseline-env.json still pins the A2 jcode (re-pin not done)');
-  c('pin-not-cpu-model', env.model_server?.models?.['hermes-local-32k'] !== CPU_MODEL_DIGEST, 'baseline-env.json still pins the CPU-only model digest (num_gpu 0)');
+  const pinnedModel = env.model_server?.models?.['hermes-local-32k'];
+  c('pin-model-fits-target', target === 'CPU' ? pinnedModel === requiredModelDigest('CPU') : target === 'GPU' ? !!pinnedModel && pinnedModel !== CPU_MODEL_DIGEST : false,
+    target === 'CPU' ? `CPU target: baseline-env.json must pin the validated CPU model ${CPU_MODEL_DIGEST.slice(0, 16)} (pinned ${String(pinnedModel).slice(0, 16)})`
+      : target === 'GPU' ? 'GPU target: baseline-env.json still pins the CPU-only model digest (num_gpu 0)' : 'no target: the model pin cannot be judged');
   const ph = plan?.phases ?? {};
   if (record) {
     // what the re-pin measured must be what PLAN.yaml now states (REPIN.md steps 1, 11, 12, 13)
     const s1 = record.stages?.['1']?.checks ?? [];
-    c('repin-gpu-visible', s1.some((x) => /^gpu-visible/.test(x.name) && x.ok), 're-pin stage 1 did not record a visible discrete GPU');
+    c('repin-target-matches', !!target && record.target === target, `re-pin record target ${record.target ?? 'none'} != PLAN target ${target ?? 'none'}`);
+    c('repin-target-hardware', s1.some((x) => /^target-hardware/.test(x.name) && x.ok), 're-pin stage 1 did not record the target hardware check as passing');
     c('repin-ollama-env-recorded', !!record.ollama_env && typeof record.ollama_env === 'object' && Object.keys(record.ollama_env).length > 0, 're-pin record has no Ollama server settings (stage 1)');
     const fp = record.stages?.['11']?.data?.t01_fingerprint;
     c('repin-t01-fingerprint-in-plan', /^[0-9a-f]{64}$/.test(String(fp)) && String(plan?.pins?.t01_fingerprint ?? '').startsWith(fp), `PLAN.yaml pins.t01_fingerprint is not the re-pin's T01x4 value ${String(fp).slice(0, 16)} (REPIN step 11)`);
@@ -79,7 +89,7 @@ export const realIO = {
   ollamaConns: () => ps1('@(Get-NetTCPConnection -RemotePort 11434 -State Established -ErrorAction SilentlyContinue).Count'),
 };
 
-export async function liveChecks({ env, record, warm }, io = realIO) {
+export async function liveChecks({ env, record, warm, target }, io = realIO) {
   const out = []; const c = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? '' : why });
   const bin = record?.jcode_bin;
   c('live-jcode', bin && io.sha256(bin) === env.jcode_sha256, `pinned jcode binary ${bin ?? '(unknown: no re-pin record)'} missing or hash != pin`);
@@ -90,7 +100,7 @@ export async function liveChecks({ env, record, warm }, io = realIO) {
   c('live-model-digest', have && have === want, `hermes-local-32k digest ${String(have).slice(0, 16)} != pin ${String(want).slice(0, 16)}`);
   if (warm) await io.warm();
   const m = (await io.ps())?.find((x) => x.name === 'hermes-local-32k:latest');
-  c('live-placement-100-gpu', m && m.size > 0 && m.size_vram >= m.size, m ? `model placement is not 100% GPU (size_vram ${m.size_vram} of ${m.size})` : 'model not loaded: placement cannot be verified (use --warm)');
+  c('live-placement-target', placementOk(target, m), !target ? 'no target: placement cannot be judged' : m ? `model placement is not the ${target} target's (size_vram ${m.size_vram} of ${m.size})` : 'model not loaded: placement cannot be verified (use --warm)');
   const cur = io.ollamaEnv();
   c('live-ollama-env', cur && record?.ollama_env && JSON.stringify(cur) === JSON.stringify(record.ollama_env), 'Ollama server settings differ from those recorded at the re-pin (or could not be read)');
   const au = io.autoUpdate();
@@ -127,7 +137,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   let record = null; if (flag('repin')) { try { record = JSON.parse(fs.readFileSync(path.join(flag('repin'), 'repin-record.json'), 'utf8')); } catch { record = null; } }
   const g = (...a) => { try { return execFileSync('git', ['-C', REPO, ...a], { encoding: 'utf8' }).trim(); } catch { return null; } };
   const res = [...staticChecks({ plan, env, record, gitClean: g('status', '--porcelain') === '', branch: g('rev-parse', '--abbrev-ref', 'HEAD') }),
-    ...(await liveChecks({ env, record, warm: argv.includes('--warm') })), ...testChecks(argv.includes('--skip-tests'))];
+    ...(await liveChecks({ env, record, warm: argv.includes('--warm'), target: targetOf(plan) })), ...testChecks(argv.includes('--skip-tests'))];
   for (const r of res) console.log(r.ok ? `ok      ${r.name}` : `BLOCKED ${r.name}: ${r.why}`);
   const v = verdict(res);
   console.log(v.line);

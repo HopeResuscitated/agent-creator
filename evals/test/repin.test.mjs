@@ -5,6 +5,7 @@ import fs from 'node:fs'; import path from 'node:path'; import { fileURLToPath }
 import { createRequire } from 'node:module';
 import { gate, editPins, modelfileDiff, STAGES } from '../bench/repin.mjs';
 import { staticChecks, PREREG_KEYS, REPIN_STAGES, A2_SHA, CPU_MODEL_DIGEST } from '../bench/cpreflight.mjs';
+import { targetOf, placementOk, requiredModelDigest, hardwareCheck } from '../bench/target.mjs';
 
 const EVALS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pass = (ids, extra = {}) => ({ stages: Object.fromEntries(ids.map((i) => [i, { status: 'PASS', env_sha: 'E' }])), ...extra });
@@ -52,10 +53,10 @@ test('cpreflight and repin agree on the stage list', () => { assert.deepEqual(RE
 
 const FP = 'e'.repeat(64);
 const ready = () => ({
-  plan: { branch: 'b', pins: { t01_fingerprint: `${FP} (A3 pin, re-pin 2026-xx)` }, phases: { H_hardware: { status: 'DECIDED - x', quant_decision: { quant: 'Q4_K_M', numbers: {} } }, A3_edit_string_args: { status: 'AUTHORITATIVE (pinned)' }, C_rebaseline: { status: 'NOT STARTED - ready', preregistration: { ...Object.fromEntries(PREREG_KEYS.map((k) => [k, 'x'])), quant: 'Q4_K_M' } } } },
-  env: { jcode_sha256: 'a'.repeat(64), model_server: { ollama_version: '0.34.4', models: { 'hermes-local-32k': 'b'.repeat(64) } } },
-  record: { stages: { ...Object.fromEntries(REPIN_STAGES.map((s) => [s, { status: 'PASS' }])), '1': { status: 'PASS', checks: [{ name: 'gpu-visible (discrete: nvidia-smi or ROCm)', ok: true }] }, '11': { status: 'PASS', data: { t01_fingerprint: FP } }, '12': { status: 'PASS', data: { quant: 'Q4_K_M' } } },
-    ollama_env: { OLLAMA_KV_CACHE_TYPE: 'q8_0' }, pins: { jcode_sha256: 'a'.repeat(64), models: { 'hermes-local-32k': 'b'.repeat(64) }, ollama_version: '0.34.4' } },
+  plan: { branch: 'b', pins: { t01_fingerprint: `${FP} (A3 pin, re-pin 2026-xx CPU)` }, phases: { H_hardware: { status: 'DECIDED - current CPU machine is the evaluation target', target_environment: { placement: 'CPU' }, quant_decision: { quant: 'Q4_K_M', numbers: {} } }, A3_edit_string_args: { status: 'AUTHORITATIVE (pinned)' }, C_rebaseline: { status: 'NOT STARTED - ready', preregistration: { ...Object.fromEntries(PREREG_KEYS.map((k) => [k, 'x'])), quant: 'Q4_K_M' } } } },
+  env: { jcode_sha256: 'a'.repeat(64), model_server: { ollama_version: '0.34.4', models: { 'hermes-local-32k': CPU_MODEL_DIGEST } } },
+  record: { schema: 'repin-record/1', target: 'CPU', stages: { ...Object.fromEntries(REPIN_STAGES.map((s) => [s, { status: 'PASS' }])), '1': { status: 'PASS', checks: [{ name: 'target-hardware (CPU)', ok: true }] }, '11': { status: 'PASS', data: { t01_fingerprint: FP } }, '12': { status: 'PASS', data: { quant: 'Q4_K_M' } } },
+    ollama_env: { OLLAMA_KV_CACHE_TYPE: 'q8_0' }, pins: { jcode_sha256: 'a'.repeat(64), models: { 'hermes-local-32k': CPU_MODEL_DIGEST }, ollama_version: '0.34.4' } },
   gitClean: true, branch: 'b',
 });
 const blocked = (st) => staticChecks(st).filter((r) => !r.ok).map((r) => r.name);
@@ -67,13 +68,13 @@ test('cpreflight: each missing prerequisite blocks', () => {
   assert.deepEqual(m((s) => { s.record.stages['11'].status = 'FAIL'; }), ['repin-stages-pass']);
   assert.deepEqual(m((s) => { s.record.pins.jcode_sha256 = 'c'.repeat(64); }), ['repin-pins-current']);
   assert.ok(m((s) => { s.env.jcode_sha256 = A2_SHA; s.record.pins.jcode_sha256 = A2_SHA; }).includes('pin-not-a2'));
-  assert.ok(m((s) => { s.env.model_server.models['hermes-local-32k'] = CPU_MODEL_DIGEST; s.record.pins.models['hermes-local-32k'] = CPU_MODEL_DIGEST; }).includes('pin-not-cpu-model'));
+  assert.deepEqual(m((s) => { s.env.model_server.models['hermes-local-32k'] = 'b'.repeat(64); s.record.pins.models['hermes-local-32k'] = 'b'.repeat(64); }), ['pin-model-fits-target']);
   assert.deepEqual(m((s) => { s.plan.phases.H_hardware.status = 'BLOCKED - open decision'; }), ['plan-h-decided']);
   assert.deepEqual(m((s) => { s.plan.phases.A3_edit_string_args.status = 'ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE'; }), ['plan-a3-authoritative']);
   assert.deepEqual(m((s) => { s.plan.phases.C_rebaseline.status = 'IN PROGRESS'; }), ['plan-c-not-started']);
   assert.deepEqual(m((s) => { delete s.plan.phases.C_rebaseline.preregistration.timeouts; }), ['plan-c-preregistered']);
   assert.deepEqual(m((s) => { s.gitClean = false; }), ['git-clean']);
-  assert.deepEqual(m((s) => { s.record.stages['1'].checks[0].ok = false; }), ['repin-gpu-visible']);
+  assert.deepEqual(m((s) => { s.record.stages['1'].checks[0].ok = false; }), ['repin-target-hardware']);
   assert.deepEqual(m((s) => { s.record.ollama_env = null; }), ['repin-ollama-env-recorded']);
   assert.deepEqual(m((s) => { s.record.ollama_env = {}; }), ['repin-ollama-env-recorded']);
   assert.deepEqual(m((s) => { s.plan.pins.t01_fingerprint = 'df1332d786b0ee3b57f58eb6e7eff90a69e366e5998efe8f9d3b6b5319d60e64 (A2 pin)'; }), ['repin-t01-fingerprint-in-plan']);
@@ -82,17 +83,44 @@ test('cpreflight: each missing prerequisite blocks', () => {
   assert.deepEqual(m((s) => { s.record.stages['12'].data.quant = 'Q8_0'; }), ['repin-quant-consistent']);
   assert.deepEqual(m((s) => { delete s.plan.phases.H_hardware.quant_decision; }), ['repin-quant-consistent']);
 });
-test('cpreflight: the current repository is BLOCKED (A2 pinned, H open, A3 candidate, C not pre-registered)', () => {
+test('cpreflight: the current repository is BLOCKED (A2 pinned, A3 candidate, C not pre-registered; H is decided)', () => {
   const yaml = createRequire(path.join(EVALS, '..', 'package.json'))('js-yaml');
   const plan = yaml.load(fs.readFileSync(path.join(EVALS, 'PLAN.yaml'), 'utf8'));
   const env = JSON.parse(fs.readFileSync(path.join(EVALS, 'baseline-env.json'), 'utf8'));
   const b = blocked({ plan, env, record: null, gitClean: true, branch: plan.branch });
-  for (const n of ['repin-record', 'pin-not-a2', 'pin-not-cpu-model', 'plan-h-decided', 'plan-a3-authoritative', 'plan-c-preregistered']) assert.ok(b.includes(n), n);
+  for (const n of ['repin-record', 'pin-not-a2', 'plan-a3-authoritative', 'plan-c-preregistered']) assert.ok(b.includes(n), n);
+  assert.ok(!b.includes('plan-h-decided'), 'the hardware decision is made: the CPU target must not block');
+  assert.ok(!b.includes('pin-model-fits-target'), 'the CPU target keeps the validated CPU model: the model pin must not block');
   assert.ok(!b.includes('plan-c-not-started'));
 });
 test('cpreflight runs the offline suite with a glob (node 26 treats a directory argument as one module)', () => {
   const src = fs.readFileSync(path.join(EVALS, 'bench', 'cpreflight.mjs'), 'utf8');
   assert.match(src, /\['--test', 'evals\/test\/\*\.test\.mjs'\]/);
+});
+test('target.mjs: the target comes from PLAN, placement is judged against it, CPU keeps the validated model', () => {
+  assert.equal(targetOf({ phases: { H_hardware: { target_environment: { placement: 'cpu' } } } }), 'CPU');
+  assert.equal(targetOf({ phases: { H_hardware: {} } }), null);
+  assert.equal(targetOf({ phases: { H_hardware: { target_environment: { placement: 'TPU' } } } }), null);
+  const m = (size, vr) => ({ size, size_vram: vr });
+  assert.equal(placementOk('CPU', m(20e9, 0)), true);
+  assert.equal(placementOk('CPU', m(20e9, 12e9)), false);
+  assert.equal(placementOk('GPU', m(20e9, 20e9)), true);
+  assert.equal(placementOk('GPU', m(20e9, 12e9)), false);
+  assert.equal(placementOk('CPU', m(20e9, undefined)), false);
+  assert.equal(placementOk('CPU', null), false);
+  assert.equal(placementOk(null, m(20e9, 0)), false, 'no target never passes');
+  assert.equal(requiredModelDigest('CPU'), CPU_MODEL_DIGEST); assert.equal(requiredModelDigest('GPU'), null);
+});
+test('hardwareCheck: CPU target needs the baseline CPU/RAM; GPU target needs a discrete GPU', () => {
+  const base = { cpu: [{ name: 'AMD Ryzen AI 7 PRO 350' }], ram: { total_gib: 31.2 } };
+  assert.equal(hardwareCheck('CPU', { cpu: [{ name: 'AMD Ryzen AI 7 PRO 350' }], ram: { total_gib: 31.2 } }, base).ok, true);
+  assert.equal(hardwareCheck('CPU', { cpu: [{ name: 'AMD Ryzen AI 7 PRO 350' }], ram: { total_gib: 15.5 } }, base).ok, false);
+  assert.equal(hardwareCheck('CPU', { cpu: [{ name: 'Intel i9' }], ram: { total_gib: 31.2 } }, base).ok, false);
+  assert.equal(hardwareCheck('CPU', null, base).ok, false);
+  assert.equal(hardwareCheck('GPU', { nvidia: { gpus: [{ name: 'RTX 4090', memory_total_mib: 24564, driver: 'x' }] } }, base).ok, true);
+  assert.equal(hardwareCheck('GPU', { nvidia: { gpus: [] } }, base).ok, false);
+  assert.equal(hardwareCheck('GPU', { rocm: { rocm_smi: true } }, base).ok, true);
+  assert.equal(hardwareCheck('TPU', {}, base).ok, false);
 });
 test('modelfileDiff: a different FROM blob only with a declared quant switch, parameters still identical', () => {
   const cpu = 'FROM C:\b\sha256-1194192c\nPARAMETER num_ctx 32768\nPARAMETER num_gpu 0\nPARAMETER temperature 0.15\n';

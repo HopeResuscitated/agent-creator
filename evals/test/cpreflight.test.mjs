@@ -4,29 +4,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os';
-import { staticChecks, liveChecks, verdict, PREREG_KEYS, REPIN_STAGES } from '../bench/cpreflight.mjs';
+import { staticChecks, liveChecks, verdict, PREREG_KEYS, REPIN_STAGES, CPU_MODEL_DIGEST } from '../bench/cpreflight.mjs';
 import { main as repinMain, STAGES, parseRecord } from '../bench/repin.mjs';
 import { fileURLToPath } from 'node:url';
 
 const EVALS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SHA = 'a'.repeat(64), DIG = 'b'.repeat(64), FP = 'e'.repeat(64), OENV = { OLLAMA_KV_CACHE_TYPE: 'q8_0', OLLAMA_FLASH_ATTENTION: 'true' };
+const SHA = 'a'.repeat(64), DIG = CPU_MODEL_DIGEST, FP = 'e'.repeat(64), OENV = { OLLAMA_KV_CACHE_TYPE: 'q8_0', OLLAMA_FLASH_ATTENTION: 'true' };
 
 function future() {
   return {
-    plan: { branch: 'b', pins: { t01_fingerprint: `${FP} (A3 pin)` }, phases: { H_hardware: { status: 'DECIDED', quant_decision: { quant: 'Q4_K_M', numbers: { malformed_rate: 0 } } }, A3_edit_string_args: { status: 'AUTHORITATIVE (pinned at re-pin)' }, C_rebaseline: { status: 'NOT STARTED', preregistration: { ...Object.fromEntries(PREREG_KEYS.map((k) => [k, 'x'])), quant: 'Q4_K_M' } } } },
+    plan: { branch: 'b', pins: { t01_fingerprint: `${FP} (A3 pin, re-pin 2026-10-04 CPU)` }, phases: { H_hardware: { status: 'DECIDED - current CPU machine is the evaluation target', target_environment: { placement: 'CPU' }, quant_decision: { quant: 'Q4_K_M', numbers: { malformed_rate: 0 } } }, A3_edit_string_args: { status: 'AUTHORITATIVE (pinned at re-pin)' }, C_rebaseline: { status: 'NOT STARTED', preregistration: { ...Object.fromEntries(PREREG_KEYS.map((k) => [k, 'x'])), quant: 'Q4_K_M' } } } },
     env: { jcode_sha256: SHA, model_server: { ollama_version: '0.34.4', models: { 'hermes-local-32k': DIG } } },
-    record: { schema: 'repin-record/1', jcode_bin: 'C:/x/jcode.exe', ollama_env: { ...OENV }, completed: 'x',
-      stages: { ...Object.fromEntries(REPIN_STAGES.map((s) => [s, { status: 'PASS' }])), '1': { status: 'PASS', checks: [{ name: 'gpu-visible (discrete: nvidia-smi or ROCm)', ok: true }] }, '11': { status: 'PASS', data: { t01_fingerprint: FP } }, '12': { status: 'PASS', data: { quant: 'Q4_K_M' } } },
+    record: { schema: 'repin-record/1', target: 'CPU', jcode_bin: 'C:/x/jcode.exe', ollama_env: { ...OENV }, completed: 'x',
+      stages: { ...Object.fromEntries(REPIN_STAGES.map((s) => [s, { status: 'PASS' }])), '1': { status: 'PASS', checks: [{ name: 'target-hardware (CPU)', ok: true, detail: 'AMD Ryzen AI 7 PRO 350 31.2 GiB vs CPU baseline AMD Ryzen AI 7 PRO 350 31.2 GiB' }] }, '11': { status: 'PASS', data: { t01_fingerprint: FP } }, '12': { status: 'PASS', data: { quant: 'Q4_K_M' } } },
       pins: { jcode_sha256: SHA, models: { 'hermes-local-32k': DIG }, ollama_version: '0.34.4' } },
     gitClean: true, branch: 'b',
     io: { sha256: () => SHA, version: async () => '0.34.4', tags: async () => [{ name: 'hermes-local-32k:latest', digest: DIG }], warm: async () => null,
-      ps: async () => [{ name: 'hermes-local-32k:latest', size: 20e9, size_vram: 20e9 }], ollamaEnv: () => ({ ...OENV }), autoUpdate: () => 0,
+      ps: async () => [{ name: 'hermes-local-32k:latest', size: 20e9, size_vram: 0 }], ollamaEnv: () => ({ ...OENV }), autoUpdate: () => 0,
       battery: () => '2', jcodeCount: () => '0', meterPort: () => '0', ollamaConns: () => '0' },
     tests: [{ name: 'tests-offline', ok: true, why: '' }, { name: 'tests-lint', ok: true, why: '' }],
   };
 }
 async function evaluate(s) {
-  const res = [...staticChecks(s), ...(await liveChecks({ env: s.env, record: s.record, warm: true }, s.io)), ...s.tests];
+  const res = [...staticChecks(s), ...(await liveChecks({ env: s.env, record: s.record, warm: true, target: 'CPU' }, s.io)), ...s.tests];
   return { ...verdict(res), blocked: res.filter((r) => !r.ok).map((r) => r.name) };
 }
 
@@ -38,9 +38,11 @@ test('fully satisfied future state: READY FOR C (logic only; C is not started)',
 // The user-facing prerequisites, each removed alone: exactly the expected check(s) block.
 const MISSING = {
   'hardware decision open': [(s) => { s.plan.phases.H_hardware.status = 'BLOCKED - open decision'; }, ['plan-h-decided']],
-  'GPU not visible at re-pin': [(s) => { s.record.stages['1'].checks[0].ok = false; }, ['repin-gpu-visible']],
-  'GPU placement not 100% (CPU/GPU split)': [(s) => { s.io.ps = async () => [{ name: 'hermes-local-32k:latest', size: 20e9, size_vram: 12e9 }]; }, ['live-placement-100-gpu']],
-  'model not loaded (placement unverifiable)': [(s) => { s.io.ps = async () => []; }, ['live-placement-100-gpu']],
+  'target hardware check failed at re-pin': [(s) => { s.record.stages['1'].checks[0].ok = false; }, ['repin-target-hardware']],
+  're-pin record was made for another target': [(s) => { s.record.target = 'GPU'; }, ['repin-target-matches']],
+  'target not declared in PLAN': [(s) => { delete s.plan.phases.H_hardware.target_environment; }, ['plan-target-declared', 'pin-model-fits-target', 'repin-target-matches']],
+  'placement is not the CPU target\'s (size_vram nonzero)': [(s) => { s.io.ps = async () => [{ name: 'hermes-local-32k:latest', size: 20e9, size_vram: 12e9 }]; }, ['live-placement-target']],
+  'model not loaded (placement unverifiable)': [(s) => { s.io.ps = async () => []; }, ['live-placement-target']],
   'A3 still candidate in PLAN': [(s) => { s.plan.phases.A3_edit_string_args.status = 'ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE'; }, ['plan-a3-authoritative']],
   'A3 binary missing / hash differs': [(s) => { s.io.sha256 = () => null; }, ['live-jcode']],
   'no re-pin record': [(s) => { s.record = null; }, ['repin-record', 'live-jcode', 'live-ollama-env']],
@@ -55,7 +57,7 @@ const MISSING = {
   'Ollama auto-update ON': [(s) => { s.io.autoUpdate = () => 1; }, ['ollama-auto-update-off']],
   'Ollama auto-update unreadable': [(s) => { s.io.autoUpdate = () => null; }, ['ollama-auto-update-off']],
   'Ollama upgraded (version != pin)': [(s) => { s.io.version = async () => '0.35.1'; }, ['live-ollama-version']],
-  'Ollama unreachable': [(s) => { s.io.version = async () => null; s.io.tags = async () => null; s.io.ps = async () => null; }, ['live-ollama-version', 'live-model-digest', 'live-placement-100-gpu']],
+  'Ollama unreachable': [(s) => { s.io.version = async () => null; s.io.tags = async () => null; s.io.ps = async () => null; }, ['live-ollama-version', 'live-model-digest', 'live-placement-target']],
   'model digest != pin': [(s) => { s.io.tags = async () => [{ name: 'hermes-local-32k:latest', digest: 'c'.repeat(64) }]; }, ['live-model-digest']],
   'C not pre-registered': [(s) => { delete s.plan.phases.C_rebaseline.preregistration; }, ['repin-quant-consistent', 'plan-c-preregistered']],
   'C pre-registration incomplete': [(s) => { s.plan.phases.C_rebaseline.preregistration.decision_rule = ''; }, ['plan-c-preregistered']],
@@ -67,7 +69,7 @@ const MISSING = {
   'final env: another Ollama client': [(s) => { s.io.ollamaConns = () => '2'; }, ['machine-ollama-exclusive']],
   'final env: process probe failed': [(s) => { s.io.jcodeCount = () => null; s.io.meterPort = () => null; s.io.ollamaConns = () => null; }, ['machine-no-jcode', 'machine-meter-port-free', 'machine-ollama-exclusive']],
   'final env: uncommitted changes': [(s) => { s.gitClean = false; }, ['git-clean']],
-  'pins changed after the re-pin': [(s) => { s.env.model_server.models['hermes-local-32k'] = 'c'.repeat(64); s.io.tags = async () => [{ name: 'hermes-local-32k:latest', digest: 'c'.repeat(64) }]; }, ['repin-pins-current']],
+  'pins changed after the re-pin': [(s) => { s.env.model_server.models['hermes-local-32k'] = 'c'.repeat(64); s.io.tags = async () => [{ name: 'hermes-local-32k:latest', digest: 'c'.repeat(64) }]; }, ['repin-pins-current', 'pin-model-fits-target']],
   'offline tests failing': [(s) => { s.tests[0].ok = false; }, ['tests-offline']],
   '--skip-tests': [(s) => { s.tests = [{ name: 'tests', ok: false, why: 'skip' }]; }, ['tests']],
 };
@@ -79,6 +81,12 @@ for (const [name, [mut, want]] of Object.entries(MISSING)) {
   });
 }
 
+test('CPU target fixture: model pin unchanged and 100% CPU is what READY means here', async () => {
+  const v = await evaluate(future()); assert.equal(v.ready, true);
+  const s = future(); s.io.ps = async () => [{ name: 'hermes-local-32k:latest', size: 20e9, size_vram: 12e9 }];
+  const w = await evaluate(s); assert.deepEqual(w.blocked, ['live-placement-target']);
+});
+
 test('verdict fails closed: no checks at all is BLOCKED, never READY', () => {
   assert.equal(verdict([]).ready, false); assert.match(verdict([]).line, /^BLOCKED/);
 });
@@ -87,7 +95,7 @@ test('every live probe failing (machine unreadable) blocks every live check', as
   const s = future(); for (const k of Object.keys(s.io)) s.io[k] = k === 'warm' ? async () => null : ['version', 'tags', 'ps'].includes(k) ? async () => null : () => null;
   const v = await evaluate(s);
   assert.equal(v.ready, false);
-  for (const n of ['live-jcode', 'live-ollama-version', 'live-model-digest', 'live-placement-100-gpu', 'live-ollama-env', 'ollama-auto-update-off', 'machine-ac', 'machine-no-jcode', 'machine-meter-port-free', 'machine-ollama-exclusive']) assert.ok(v.blocked.includes(n), n);
+  for (const n of ['live-jcode', 'live-ollama-version', 'live-model-digest', 'live-placement-target', 'live-ollama-env', 'ollama-auto-update-off', 'machine-ac', 'machine-no-jcode', 'machine-meter-port-free', 'machine-ollama-exclusive']) assert.ok(v.blocked.includes(n), n);
 });
 
 // ---- repin.mjs record handling (fake stages; real gate/record code) ----
