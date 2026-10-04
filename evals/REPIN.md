@@ -1,6 +1,7 @@
-# Re-pin procedure (hardware change -> A3 pin -> C)
+# Re-pin procedure (target environment -> A3 pin -> C)
 
-Run this top to bottom after the hardware change, before any C run. Every step has a pass condition. A FAIL stops
+Run this top to bottom on the target environment (2026-10-04: this machine, CPU-only - see "Required for the CPU target"
+below), before any C run. Every step has a pass condition. A FAIL stops
 the procedure: investigate, fix, and restart from step 1. Never skip a step because an earlier pin passed it, and never
 treat an old fingerprint or an old timing as the new baseline.
 
@@ -22,6 +23,22 @@ again with `--quant <its quantization_level>` (stage 3 then accepts the differen
 The text below remains the specification; the script implements it. The exact post-hardware command sequence (with
 the expected output of each step, the manual parts and the decisions) is `evals/RUNBOOK-POST-HARDWARE.md`.
 
+## Required for the CPU target (the current run) vs optional GPU capability
+
+The 2026-10-04 decision (PLAN `H_hardware.target_environment`): the existing CPU-only machine IS the evaluation
+environment; no dedicated GPU is planned. `repin.mjs --target CPU` (the default, read from PLAN) runs step 1 as
+`target-hardware (CPU)` and step 3 as "the model is UNCHANGED", so nothing here is skipped or faked:
+
+| Step | CPU target (required, executed 2026-10-04) | GPU capability (OPTIONAL, not planned) |
+|---|---|---|
+| 1 | same CPU model + RAM as the recorded CPU baseline profile, AC power | a discrete GPU visible (nvidia-smi / ROCm) + its VRAM/driver |
+| 2 | Ollama version = pin (0.34.4) | - |
+| 3 | the model is the validated CPU model: digest, `num_gpu 0`, Q4_K_M, 100% CPU placement | rebuild without `num_gpu 0` (new digest), then verify 100% GPU placement |
+| 4, 5-6, 7-10, 11, 12 | unchanged, required | unchanged, required |
+| 13 | `cpreflight.mjs`: no GPU/VRAM/GPU-layer prerequisite (`live-placement-target`, `pin-model-fits-target`) | would judge 100%-GPU placement and a rebuilt model |
+
+Nothing in the CPU column may be skipped; nothing in the GPU column is needed to run C on this machine.
+
 ## What changes and what does not
 
 | Item | Before (validated, CPU) | After the re-pin |
@@ -31,11 +48,13 @@ the expected output of each step, the manual parts and the decisions) is `evals/
 | Model | `hermes-local-32k` digest `1ef2c71ed206...` = Qwen3-Coder 30B-A3B Instruct Q4_K_M, **`num_gpu 0` (forced CPU)**, num_ctx 32768, temperature 0.15, top_k 20, top_p 0.8, repeat_penalty 1.05 | same weights and parameters except `num_gpu` (a new digest); the quant may change in step 12 |
 | node, harness, eval-baseline-v1 task tree, timeouts | pinned | unchanged |
 
-A3 is **not** part of the validated baseline until steps 4-11 pass. Until then every result was produced by the A2 binary.
+A3 is **not** part of the validated baseline until steps 4-11 pass. 2026-10-04 on the CPU target: steps 1-12 PASS,
+A3 pinned in commit `8295bb7`, T01 x4 reproducible (`90862fc1...`), so A3 is now the pin (PLAN `pins.jcode`).
 
-## Before the hardware change (manual)
+## Before the re-pin (manual, one human action)
 Disable Ollama automatic updates before the next Ollama restart (HANDOFF "Ollama auto-update"); otherwise the staged
-0.35.1 installs and step 2 fails.
+0.35.1 installs and step 2 fails. Steps 1-12 do not restart Ollama, so the re-pin itself does not need this - but a
+restart during C would install 0.35.1 and invalidate the run.
 
 ## Steps
 

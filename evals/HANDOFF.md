@@ -1,7 +1,7 @@
 # Handoff: pick up here
 
-Updated 2026-10-04 (HARDWARE-READY CHECKPOINT, re-confirmed after the second pre-hardware audit: all non-hardware work
-done; C not started). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
+Updated 2026-10-04 (CPU TARGET REINSTATED: the existing machine IS the evaluation environment; A3 re-pinned on it;
+C not started). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
 `evals/REPIN.md`; exact post-hardware sequence: `evals/RUNBOOK-POST-HARDWARE.md`. Evidence: `C:\Users\cierra\hermes-bench-archive` (cycle9 = A2, Phase B, A3 candidate, final
 regression, pre-C tooling checks).
 
@@ -10,15 +10,16 @@ Containment is proven (all invariants hold; decision rule passed). Last harness-
 hardening and second audit: classification, failure propagation, monitoring, re-pin automation; see "Post-checkpoint
 hardening" and "Second pre-hardware audit"). No
 evidence was produced by the new code: every authoritative result predates it and is unchanged. All work is local (branch `cierra-wip-2026-09-29`); nothing has been pushed.
-**C has not started and must not start before the hardware decision.**
+**C has not started. The target environment is decided: this machine (see "CPU target" below), so C is no longer
+blocked on hardware - only on the human steps in "Open decisions".**
 
 ### Evidence classes (how to read every result in this file)
 | Class | What belongs here |
 |---|---|
 | **Authoritative** | Produced on the current pins (A2 jcode `7ed7403f8`/`f76eff11...`, Ollama 0.34.4, model `1ef2c71e...`), AC, no sleep, no external activity: clean A2 validation 2026-10-02, b6 (the authoritative Phase B run), final regression 2026-10-03, gates.sh + T01 x4 2026-10-03, reference agent 18/18 |
 | **Historical** | Kept on record, not reinterpreted, not used for authoritative timing: cycles 6-8 (pre-A2 jcode), b5 (battery + sleep), the two CONTAMINATED A2 attempts, superseded pins |
-| **Candidate fix** | A3 (`710560f91`, `42ed4012...`): ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE, not pinned; only fake-server and unit evidence |
-| **Hardware-dependent (not done)** | REPIN.md steps 1-12, quant trial, C, everything after C |
+| **A3 (now the pin)** | A3 (`710560f91`, `42ed4012...`): PINNED 2026-10-04 by REPIN.md steps 1-12 on the CPU target (commit `8295bb7`, record `cycle10-cpu-repin/repin-record.json`); A0-A2/Phase B evidence stays A2 evidence |
+| **CPU-limited (recorded; not a defect)** | T03/T08/T13/T14/T17 and T05's margin time out on this CPU by throughput, not by fault; the quant trial is not feasible here (documented). Not a missing hardware setup: CPU-only execution is the intended target |
 | **Proposed, not approved** | D gate definition (see Coverage); no other proposal is in force |
 | **Known limitations** | CPU/model-throughput and model-behaviour items below; recorded as measured (TIMEOUT stays TIMEOUT) |
 
@@ -81,7 +82,9 @@ Model behaviour (independent of hardware):
 
 Runs before `3f9df6c` are not fingerprint-comparable (the jcode hash changed on purpose).
 
-## A3: ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE (prepared for the next re-pin, not pinned)
+## A3: PINNED 2026-10-04 (was: adopted as candidate, not pinned)
+Steps 1-12 of REPIN.md passed on the CPU target and pinned A3 in `8295bb7` (`pins.jcode`); the section below describes
+the candidate work as it was prepared before the pin.
 - **What**: jcode `710560f91` = the pinned A2 commit `7ed7403f8` + one change in `edit.rs`: a string `edits` that
   decodes to an array (strict JSON, or after escaping raw newline/CR/tab inside string literals) is used as the array;
   everything else errors as before.
@@ -124,7 +127,9 @@ Runs before `3f9df6c` are not fingerprint-comparable (the jcode hash changed on 
 
 **T01 x4 (2026-10-03, A2 pin, AC)**: PowerShell and git-bash x contained and control: 2 runs (8 launches), T01 PASS 8/8, environment CLEAN, every fingerprint `df1332d786b0ee3b57f58eb6e7eff90a69e366e5998efe8f9d3b6b5319d60e64` = the T01 entry of the clean A2 validation (2026-10-02), so DET-1 also holds across days. Pre-A2 `4dcba4e1...` reported DIFFERENT, as expected. The re-pin must replace this value. (A first attempt never launched: Windows PowerShell 5.1 turned node's stderr warning into a terminating error; fixed with Start-Process before both runs.)
 
-## Hardware decision: technical requirements (facts only; the choice is yours)
+## Hardware decision: DECIDED 2026-10-04 (CPU target; requirements kept as historical facts)
+The requirements below were written while the option "dedicated GPU" was open. The user decided the current CPU-only
+machine is the target, so none of them is a prerequisite, and no VRAM minimum applies. Kept as written, unrevised.
 
 ### FACTS MEASURED
 Summary (details below):
@@ -365,26 +370,47 @@ generating for nobody and the next task queued behind it. Fixed in `bab3a17` (re
 after a killed generation answers in 173 ms). A meter that dies mid-run is detected (`170cbd5`, exit 6).
 `meterabort.mjs` now checks this as a gate and fails on the pre-fix meter.
 
+## CPU target: the existing machine IS the evaluation environment (2026-10-04)
+
+Decision (user): no dedicated GPU, no purchase, no other machine. The current machine - Ryzen AI 7 PRO 350, 31.2 GiB RAM,
+integrated Radeon 860M (512 MiB carve-out, Vulkan-visible, unused), Ollama 0.34.4, `hermes-local-32k` Q4_K_M at 32k on
+CPU - is the target. The old GPU premise (and `RUNBOOK-POST-HARDWARE.md`) is marked OPTIONAL, NOT PLANNED. Historical
+CPU measurements are kept unchanged; the absence of a GPU is not described anywhere as an incomplete setup.
+
+What changed (all local, code + docs; no grader, timeout, criterion, pin value or recorded result was touched):
+- `evals/bench/target.mjs` (new): the target is read from PLAN `phases.H_hardware.target_environment.placement`, never assumed.
+- `repin.mjs`: stage 1 checks the target's hardware (`target-hardware (CPU)` = same CPU + RAM as the recorded CPU baseline);
+  stage 3 for CPU verifies the model is UNCHANGED (validated digest, `num_gpu 0`, 100% CPU) instead of requiring the rebuild;
+  the record stores its target and later stages refuse a different one.
+- `cpreflight.mjs`: GPU visibility, VRAM and GPU-layer prerequisites REMOVED (they existed only for the abandoned plan);
+  model placement and the model pin are judged against the declared target (`live-placement-target`, `pin-model-fits-target`).
+  Kept: jcode integrity, model integrity, Ollama version, containment, security, reproducibility, power/sleep, clean
+  evidence, task baseline, fingerprints, timeout and contamination rules.
+
+Re-pin on this machine (REPIN.md steps 1-12, 2026-10-04 16:11-16:24, archive `cycle10-cpu-repin`): all PASS - hardware
+matches the CPU baseline, AC, Ollama 0.34.4, model unchanged and 100% CPU, A3 binary identity, editstring both ways,
+a3offline 18/18, `~/.jcode` unchanged, pin commit `8295bb7`, `gates.sh` PASS, T01 x4 reproducible (`90862fc1...`, DIFFERENT
+from the A2 value as required), quant Q4_K_M. A3 is therefore the pin; nothing was pushed.
+
 ## Open decisions (yours)
-1. **Hardware / GPU / VRAM** (H), before C: the only decision blocking progress. No minimum is specified by the project;
-   see "Hardware decision".
-2. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
+1. **Ollama auto-update**: still ON (manual tray action). It is the last non-human-tooling blocker for C: a restart would
+   install the staged 0.35.1 and every run would refuse (exit 8) until a deliberate re-pin. Step 1-12 do not restart Ollama.
+2. **C pre-registration**: approve `C_rebaseline.preregistration_proposed` (PROPOSED, not approved). Two open decisions in
+   it: tasks that fail at SETUP (re-run once vs record SETUP_FAILED) and replacing "well below 41%" with a number.
+3. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
-3. **D gate definition** (adopt / change / reject the PROPOSAL in Coverage): needed before D, not before C. If adopted,
+4. **D gate definition** (adopt / change / reject the PROPOSAL in Coverage): needed before D, not before C. If adopted,
    the implementation burden is small (existing suite.sh/reduced.sh with all 18 tasks); what it would still need is a D
    decision rule and timeouts for the 10 non-C tasks (PLAN `D_gate.preparation_if_adopted`).
-4. **Ollama server settings**: keep them observed-only, or pin them (KV q8_0, flash attention, ...) as part of the re-pin.
-5. **After the re-pin**: the quant (step 12) and C's pre-registration (reps, order, timeouts, decision rule).
-6. **Housekeeping** (optional; `evals/AUDIT.md` 21.5): 131 sandbox roots under `%TEMP%\agent-evals` (~36 GiB; re-analysis
+5. **Ollama server settings**: keep them observed-only, or pin them (KV q8_0, flash attention, ...) as part of the re-pin.
+6. **TRIP review policy** (was 7): a TRIP needing review writes `ev-<label>/TRIP-NEEDS-REVIEW` and the last line says so, but the exit code is still 0 - decide whether it should fail the suite.
+7. **Housekeeping** (optional; `evals/AUDIT.md` 21.5): 131 sandbox roots under `%TEMP%\agent-evals` (~36 GiB; re-analysis
    reads them; 13 are from the 2026-10-04 real-process tests), the staged Ollama 0.35.1 installer. Recommendation: keep
    both until C is archived. Nothing has been deleted.
-7. **Suite policy**: a TRIP needing review (VIOLATION/UNATTRIBUTED) now writes `ev-<label>/TRIP-NEEDS-REVIEW` and the
-   last line says so, but the exit code is still 0. Decide whether it should fail the suite (own exit code).
-8. **C pre-registration detail**: SETUP_FAILED tasks are excluded from the score (status contract); say whether C re-runs
-   them.
 
 Manual action, not a decision: disable Ollama automatic updates before the next Ollama restart ("Ollama auto-update").
-Already decided: A3 adopted as candidate for the next re-pin; compression on the main provider.
+Already decided: the evaluation target is this CPU-only machine; A3 is pinned (2026-10-04); quant Q4_K_M (no alternative
+is feasible here); compression on the main provider.
 
 ## Post-checkpoint hardening (2026-10-04)
 Autonomous non-hardware backlog; details and the full audit in `evals/AUDIT.md`. Defects fixed (none touched a pin, a
@@ -426,7 +452,7 @@ New: `evals/RUNBOOK-POST-HARDWARE.md` (exact post-hardware sequence), `evals/per
 `a3stress.mjs` (A3 candidate evidence: PASS), `test/suite-midrun.sh` (real contained suite: model failure -> FAIL /
 exit 0; meter killed -> exit 6 in ~2 min; stray Ollama client -> TRIP-NEEDS-REVIEW; no surviving process).
 
-## Hardware-ready checkpoint (2026-10-04, re-confirmed)
+## Hardware-ready checkpoint (2026-10-04) - SUPERSEDED, then reached on the CPU target
 Done: everything not needing new hardware. Not started: C, re-baseline, A3 pin, Ollama change, hardware selection.
 Next step after your hardware decision and installation: follow `evals/RUNBOOK-POST-HARDWARE.md` (step 0, auto-update off, is possible now); its core is `evals/bench/repin.mjs --out <R> --stage 1` (= `evals/REPIN.md`
 step 1; `--dry-run` shows every stage first), then the stages in order, then `evals/bench/cpreflight.mjs --repin <R>`.

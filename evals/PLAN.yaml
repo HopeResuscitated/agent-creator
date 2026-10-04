@@ -11,11 +11,13 @@ updated: 2026-10-04
 
 pins:                              # the evaluation contract; run.ts refuses (exit 2) on any mismatch
   node: "patched node 26.7.0 (A0, 14f50f2)"
-  jcode: "C:/Users/cierra/jcode-evalpin-a2-bin/jcode.exe = jcode v0.88.64-dev (7ed7403f8),
-          sha256 f76eff118ae42e9876727095c100420f485e7ea7a8904d3dd62e93f55beaf8e3 (A2, 3f9df6c).
-          Previous pin, superseded: C:/Users/cierra/jcode-evalpin-bin/jcode.exe v0.88.63-dev (1fbb2e1b4), sha256 7d467704...
-          A3, ADOPTED for the next re-pin, NOT pinned: C:/Users/cierra/jcode-evalpin-a3cand-bin/jcode.exe v0.88.65-dev (710560f91),
-          sha256 42ed4012e129cc36e9d3f3c299b3015fbde5c8cb95cab36ed41f0d526fd0bab7 - run.ts refuses it until REPIN.md step 6 (verified 2026-10-03)."
+  jcode: "C:/Users/cierra/jcode-evalpin-a3cand-bin/jcode.exe = jcode v0.88.65-dev (710560f91),
+          sha256 42ed4012e129cc36e9d3f3c299b3015fbde5c8cb95cab36ed41f0d526fd0bab7 (A3, PINNED 2026-10-04 by
+          REPIN.md steps 1-12 on the CPU target, commit 8295bb7; record: hermes-bench-archive/cycle10-cpu-repin/repin-record.json).
+          Previous pin, superseded 2026-10-04: A2 C:/Users/cierra/jcode-evalpin-a2-bin/jcode.exe v0.88.64-dev (7ed7403f8),
+          sha256 f76eff118ae42e9876727095c100420f485e7ea7a8904d3dd62e93f55beaf8e3 (3f9df6c); before that
+          C:/Users/cierra/jcode-evalpin-bin/jcode.exe v0.88.63-dev (1fbb2e1b4), sha256 7d467704...
+          Every result produced before 2026-10-04 16:12 (A0-A2, Phase B, C's predecessor evidence) is A2 evidence and stays so."
   jcode_build: "C:/Users/cierra/jcode-evalpin (branch eval-pin-74577fe83), rustup stable-x86_64-pc-windows-gnu 1.98.1,
                 PATH=<that toolchain>/bin, CARGO_TARGET_DIR=C:/Users/cierra/jcode/target, JCODE_BUILD_GIT_HASH=<short HEAD>,
                 cargo build --release --target x86_64-pc-windows-gnu --bin jcode (git-bash's coreutils `link` shadows MSVC;
@@ -27,8 +29,10 @@ pins:                              # the evaluation contract; run.ts refuses (ex
                  own startup record (evals/bench/ollamaenv.mjs) = evals/bench/ollama-server-env.observed.json: CONTEXT_LENGTH 32768,
                  FLASH_ATTENTION true, KV_CACHE_TYPE q8_0, NUM_PARALLEL 1, KEEP_ALIVE 30m, VULKAN true, IGPU_ENABLE 1 (server started
                  2026-09-28 23:40, i.e. the server of every a2val3 and b6 run). gates.sh prints it (INFO); suite.sh records it per run"
-  t01_fingerprint: "df1332d786b0ee3b57f58eb6e7eff90a69e366e5998efe8f9d3b6b5319d60e64 (A2 pin; clean A2 validation 2026-10-02 and
-                    T01 x4 2026-10-03: 4 launch paths identical). Pre-A2 (1fbb2e1b4): 4dcba4e1... The re-pin MUST produce a new value."
+  t01_fingerprint: "90862fc1f1f3ee4821123e833147140c68a7ede374aa1da08e530dbda3bacf08 (A3 pin; re-pin 2026-10-04, T01 x4: 4 launch
+                    paths identical, and DIFFERENT from the A2 value as the re-pin requires). Superseded A2 value:
+                    df1332d786b0ee3b57f58eb6e7eff90a69e366e5998efe8f9d3b6b5319d60e64 (clean A2 validation 2026-10-02, T01 x4
+                    2026-10-03); pre-A2 (1fbb2e1b4): 4dcba4e1..."
 
 harness_commits:                   # since 6ca495a (the last commit on origin)
   94ff963: "*.sh checked out with LF (.gitattributes); no file content changed"
@@ -69,6 +73,9 @@ harness_commits:                   # since 6ca495a (the last commit on origin)
   2cd9a04: "evals/test/suite-midrun.sh + fakeupstream.mjs (real contained suite, no inference)"
   f933a4e: "lint: taskkill /F in bash; tools/probe.sh fix; suite-midrun kills the meter with Stop-Process"
   59ccb11: "lifecycle tests prove fault injection/refusals (meter by listening port, positive controls, no vacuous no-PASS); AUDIT 21.9"
+  030aaa8: "evaluation target is declared, not assumed: bench/target.mjs, repin target branch + stage-3 CPU check, cpreflight GPU-only blockers removed (AUDIT 22)"
+  d4ef6d1: "PLAN: H_hardware DECIDED (CPU target); quant decision; C preregistration PROPOSED (not approved)"
+  8295bb7: "pin: A3 on the CPU target (baseline-env.json only) - written by repin stage 5-6"
   9c9bf85: "suite.sh: TRIP needing review -> ev-<label>/TRIP-NEEDS-REVIEW + last line (exit code policy unchanged)"
 jcode_commits:                     # C:/Users/cierra/jcode-evalpin, local only
   1fbb2e1b4: "XML tool-call recovery (previous pin)"
@@ -328,8 +335,9 @@ phases:
                   A2 retried it. Classification: TIMEOUT, CPU/model throughput; timeout unchanged (30 min)."
     accept: "no T05 failure ends on an unrecovered incomplete stream; retries bounded and logged"
   A3_edit_string_args:
-    status: "ADOPTED AS CANDIDATE (user, 2026-10-03), NOT YET AUTHORITATIVE - prepared for the next re-pin; NOT pinned, NOT real-task validated.
-             Every validated result so far comes from the A2 binary. Becomes authoritative only after REPIN.md steps 4-11 pass."
+    status: "AUTHORITATIVE - PINNED 2026-10-04 (REPIN.md steps 1-12 all PASS on the CPU target: sha256, version, branch commit,
+             editstring both ways, a3offline 18/18, ~/.jcode unchanged, pin commit 8295bb7, gates.sh PASS, T01 x4 reproducible,
+             quant Q4_K_M). Record: hermes-bench-archive/cycle10-cpu-repin/repin-record.json. A0-A2/Phase B results remain A2 evidence."
     prepared: ["binary identity re-verified 2026-10-03: sha256 42ed4012...0bab7, jcode v0.88.65-dev (710560f91), branch head 710560f91154f5fed6f1ec9a34b9852a471d8b5f",
                "scenario test in the repo: evals/bench/editstring.mjs; 2026-10-03: A3 --expect fixed PASS, A2 --expect unfixed PASS, ~/.jcode unchanged",
                "run.ts still refuses it (gates.sh jcode-pin-refusal)",
@@ -413,7 +421,9 @@ phases:
                 prerequisites (GPU visible, VRAM, GPU layers, 100%-GPU placement) were removed 2026-10-04: they existed only for the
                 abandoned dedicated-GPU plan. Real prerequisites kept: jcode integrity, model integrity, Ollama version, containment,
                 security, reproducibility, power/sleep, clean evidence, task baseline, fingerprints, timeouts, contamination.
-                2026-10-04 after the CPU re-pin: BLOCKED on the human steps only (auto-update ON, preregistration not approved)"
+                2026-10-04 after the CPU re-pin (record cycle10-cpu-repin, --warm): every prerequisite passes except the human
+                steps - C pre-registration not approved (plan-c-preregistered + repin-quant-consistent) and Ollama auto-update ON.
+                Model placement, model pin, jcode pin, Ollama version, fingerprint-in-PLAN, target match and hardware all PASS"
     preregistration_proposed:   # PROPOSED by Hermes 2026-10-04, NOT APPROVED. cpreflight keeps plan-c-preregistered BLOCKED
                   # until the user moves/approves these values into preregistration (the same six items; this block adds no criterion).
                   # The only two open decisions in it are marked PROPOSED-DECISION below.
@@ -437,7 +447,7 @@ phases:
     decision_rule: ["invariants hold every contained run", "fingerprints match within mode",
                     "no contained-only failure with a containment-specific error",
                     "contained-vs-control disagreement <= contained-vs-contained", "same-mode disagreement well below 41%"]
-    preconditions_left: ["REMAINING HUMAN STEPS ONLY 2026-10-04: (1) Ollama auto-update OFF (tray icon > Settings) or a deliberate re-pin; (2) approve preregistration (decide PROPOSED-DECISION-1/2 above). H is decided (CPU target). REPIN.md steps 1-12: run 2026-10-04 on the CPU target", "H decided", "REPIN.md steps 1-12 PASS (A3 pinned then)", "Ollama auto-update off (manual, user) or deliberately re-pinned",
+    preconditions_left: ["REMAINING HUMAN STEPS ONLY 2026-10-04 (verified by cpreflight --warm): (1) Ollama auto-update OFF (tray icon > Settings) or a deliberate re-pin; (2) approve preregistration (move preregistration_proposed -> preregistration; decide PROPOSED-DECISION-1/2). H is decided (CPU target). REPIN.md steps 1-12 ran 2026-10-04 on the CPU target (all PASS)", "H decided (CPU target: this machine)", "REPIN.md steps 1-12 PASS (A3 pinned then)", "Ollama auto-update off (manual, user) or deliberately re-pinned",
                          "C pre-registered in this file (tasks, reps, order, timeouts, decision rule) before the first C run", "machine on AC and exclusive"]
     preconditions_done: ["A3 adopted as candidate (2026-10-03; becomes authoritative only via REPIN.md)", "repo AGENTS.md corrected (HEAD); C keeps eval-baseline-v1, whose AGENTS.md still has the old text
                          (sandboxes come from the tag, not HEAD) - same text in every run, so no contained-vs-control bias"]

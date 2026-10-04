@@ -88,6 +88,8 @@ Gates and re-pin (see evals/REPIN.md for the full sequence)
   repin.mjs --out <R> (--dry-run | --stage <id> [--apply] | --status | --restart)   REPIN.md steps 1-12 as ordered,
                                   fail-closed stages with a record; only stage 5-6 --apply edits/commits the pins
   cpreflight.mjs --repin <R> [--warm]   READY FOR C or BLOCKED: <every reason> (fail closed)
+  target.mjs (library)   the declared evaluation target (PLAN phases.H_hardware.target_environment.placement):
+                         repin stage 1 hardware check, stage 3 CPU/GPU branch, cpreflight placement + model-pin rules
   attrmon.ps1 -Log <f> -StopFile <f> [-Interval 20] [-Once]   attribution monitor for exclusive windows: every
                                   jcode.exe and Ollama client classified; EXTERNAL-ACTIVITY lines = contaminated run.
 

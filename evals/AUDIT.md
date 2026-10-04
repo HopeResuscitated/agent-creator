@@ -290,3 +290,27 @@ All runs 2026-10-04 against `fakeupstream.mjs` (no inference); none is evidence,
 After the final battery: no meter, watch, keepawake, wrapper, run.ts, broker, jcode or stand-in process; meter port and
 stand-in port free; results dirs created by the tests moved to the scratch dir (with the 5 run.ts race-test dirs from
 the security review); rows the tests appended to the untracked `evals/results/history.csv` were left. Nothing deleted.
+
+### 22 CPU target reinstated and A3 re-pinned on it (2026-10-04, code + docs; no evidence rewritten)
+The user decided the current CPU-only machine IS the evaluation environment (no dedicated GPU planned). The GPU
+prerequisites had been duplicated in three places: the re-pin stages, the preflight, and the docs. All three now ask
+the DECLARED target (PLAN `H_hardware.target_environment.placement`) instead of assuming one:
+| Change | Where | Why |
+|---|---|---|
+| `targetOf` / `placementOk` / `requiredModelDigest` / `hardwareCheck` | new `evals/bench/target.mjs` | one definition of the target, shared; unknown/missing target never passes |
+| stage 1 `target-hardware (CPU)`: same CPU + RAM as the CPU baseline profile | `repin.mjs` | the old check demanded a discrete GPU, which was never a requirement of C |
+| stage 3 CPU branch: model UNCHANGED (validated digest, `num_gpu 0`, Q4_K_M, `size_vram 0`) | `repin.mjs` | the rebuild only ever existed to put the model on a GPU |
+| record stores its target; later stages refuse a different one | `repin.mjs` | a CPU record can never be continued as a GPU attempt |
+| GPU visibility, VRAM minimum, 100%-GPU placement and "not the CPU model" blockers REMOVED | `cpreflight.mjs` | GPU-only, from the abandoned plan |
+| `live-placement-target` (CPU: `size_vram == 0`), `pin-model-fits-target` (CPU: the validated digest) | `cpreflight.mjs` | placement and the model pin are still checked - against the real target |
+| `plan-target-declared`, `repin-target-matches`, `repin-target-hardware` | `cpreflight.mjs` | a missing/unknown target fails closed instead of defaulting |
+| H_hardware DECIDED + `target_environment`; quant decision; C preregistration PROPOSED | `PLAN.yaml` | the target, quant and preregistration live in the single source of truth |
+| RUNBOOK-POST-HARDWARE.md and perf/HARDWARE-REPORT.md marked OPTIONAL, NOT PLANNED | docs | no fake future baseline; nothing to fill in |
+Kept unchanged: jcode/model/Ollama pin checks, containment, security, reproducibility, power/sleep, clean evidence,
+task baseline, fingerprints, timeout and contamination rules. Offline suite 163/163 (target logic, hardware check,
+target-mismatch and target-placement blockers added); lint PASS.
+Re-pin on this machine (steps 1-12, archive `cycle10-cpu-repin`): all PASS - 100% CPU placement confirmed by
+`/api/ps` (`size_vram 0 of 20,514,361,834`), A3 identity + editstring + a3offline 18/18 + `~/.jcode` unchanged, pin
+commit `8295bb7`, `gates.sh` PASS, T01 x4 reproducible `90862fc1...` and DIFFERENT from the A2 `df1332d7...`,
+quant Q4_K_M. No quant trial was run (not feasible here - a feasibility fact, not a measurement; PLAN
+`quant_decision.numbers`); A0-A2 values stay as they were.

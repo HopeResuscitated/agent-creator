@@ -83,12 +83,15 @@ test('cpreflight: each missing prerequisite blocks', () => {
   assert.deepEqual(m((s) => { s.record.stages['12'].data.quant = 'Q8_0'; }), ['repin-quant-consistent']);
   assert.deepEqual(m((s) => { delete s.plan.phases.H_hardware.quant_decision; }), ['repin-quant-consistent']);
 });
-test('cpreflight: the current repository is BLOCKED (A2 pinned, A3 candidate, C not pre-registered; H is decided)', () => {
+test('cpreflight: the current repository is BLOCKED only on the remaining human steps (post re-pin)', () => {
   const yaml = createRequire(path.join(EVALS, '..', 'package.json'))('js-yaml');
   const plan = yaml.load(fs.readFileSync(path.join(EVALS, 'PLAN.yaml'), 'utf8'));
   const env = JSON.parse(fs.readFileSync(path.join(EVALS, 'baseline-env.json'), 'utf8'));
   const b = blocked({ plan, env, record: null, gitClean: true, branch: plan.branch });
-  for (const n of ['repin-record', 'pin-not-a2', 'plan-a3-authoritative', 'plan-c-preregistered']) assert.ok(b.includes(n), n);
+  // the A3 re-pin of 2026-10-04 is visible: the pins are no longer A2, the model pin fits the CPU target, H is decided
+  for (const n of ['repin-record', 'plan-c-preregistered']) assert.ok(b.includes(n), n);
+  assert.ok(!b.includes('pin-not-a2'), 'the re-pin happened: baseline-env.json must not still pin A2');
+  assert.ok(!b.includes('plan-a3-authoritative'), 'A3 is pinned now: the PLAN status must not block');
   assert.ok(!b.includes('plan-h-decided'), 'the hardware decision is made: the CPU target must not block');
   assert.ok(!b.includes('pin-model-fits-target'), 'the CPU target keeps the validated CPU model: the model pin must not block');
   assert.ok(!b.includes('plan-c-not-started'));

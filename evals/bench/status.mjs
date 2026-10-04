@@ -59,12 +59,16 @@ export function checks(s, docs) {
   const c = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? '' : why });
   const { plan, handoff, repin } = docs;
   const a2 = s.pins.jcode_sha256 ?? '';
-  c('a2-pin-is-authoritative', /^f76eff11/.test(a2), `baseline-env.json jcode_sha256 is ${a2.slice(0, 16)}, not the A2 pin f76eff11...; a re-pin must update this check deliberately`);
-  c('a2-sha-in-docs', handoff.includes(a2) && repin.includes(a2), 'HANDOFF.md and REPIN.md must both state the pinned jcode sha256 in full');
-  c('a2-sha-prefix-in-plan', plan.includes(a2.slice(0, 16)), 'PLAN.yaml pins.jcode must contain the pinned sha256 prefix');
-  c('a3-candidate-not-authoritative', /ADOPTED AS CANDIDATE/.test(s.phase_detail.A3_edit_string_args ?? '') && /NOT YET AUTHORITATIVE/.test(s.phase_detail.A3_edit_string_args ?? ''), 'PLAN A3 status must read ADOPTED AS CANDIDATE ... NOT YET AUTHORITATIVE');
-  c('a3-not-pinned', !a2.startsWith('42ed4012'), 'the A3 sha256 is pinned in baseline-env.json, but A3 is not authoritative');
-  c('a3-wording-handoff', /ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE/.test(handoff), 'HANDOFF must state A3 as ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE');
+  // The pin moved to A3 on 2026-10-04 (REPIN.md steps 1-12 on the CPU target). These checks state the re-pinned
+  // contract: baseline-env pins A3, PLAN/HANDOFF say AUTHORITATIVE/PINNED, and A2 is still recorded as superseded.
+  const A2_SHA = 'f76eff118ae42e9876727095c100420f485e7ea7a8904d3dd62e93f55beaf8e3', A3_SHA = '42ed4012e129cc36e9d3f3c299b3015fbde5c8cb95cab36ed41f0d526fd0bab7';
+  const a3Status = String(s.phase_detail.A3_edit_string_args ?? '');
+  c('pin-is-a3', a2 === A3_SHA, `baseline-env.json jcode_sha256 is ${a2.slice(0, 16)}, not the A3 pin ${A3_SHA.slice(0, 16)}`);
+  c('pin-sha-in-docs', handoff.includes(a2) && repin.includes(a2), 'HANDOFF.md and REPIN.md must both state the pinned jcode sha256 in full');
+  c('pin-sha-prefix-in-plan', plan.includes(a2.slice(0, 16)), 'PLAN.yaml pins.jcode must contain the pinned sha256 prefix');
+  c('superseded-a2-still-recorded', plan.includes(A2_SHA.slice(0, 16)) && plan.includes(A2_SHA), 'PLAN.yaml pins.jcode must still record the superseded A2 sha256 (history, not erased)');
+  c('a3-authoritative', /AUTHORITATIVE/.test(a3Status) && !/NOT YET AUTHORITATIVE/.test(a3Status), 'PLAN A3 status must read AUTHORITATIVE (re-pin done) and no longer NOT YET AUTHORITATIVE');
+  c('a3-wording-handoff', /A3: PINNED/.test(handoff) && !/ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE/.test(handoff), 'HANDOFF must state A3 as PINNED and drop the candidate wording');
   c('c-not-started', s.phases.C_rebaseline === 'NOT STARTED', `PLAN C_rebaseline status is "${s.phases.C_rebaseline}"`);
   const dText = (JSON.stringify(s.d_gate_proposal ?? '') + ' ' + (s.phase_detail.D_gate ?? '')).replace(/NOT (YET )?(ADOPTED|APPROVED)/g, '');
   c('d-proposed-not-adopted', /PROPOSED/.test(dText) && !/ADOPTED|APPROVED/.test(dText), 'PLAN D_gate must carry the proposal labelled PROPOSED and must not read ADOPTED/APPROVED');
@@ -73,7 +77,10 @@ export function checks(s, docs) {
   c('baseline-tag-exists', !!s.git.baseline_tag_commit, `tag ${s.git.baseline_tag} missing`);
   c('human-decisions-listed', Array.isArray(s.human_decisions) && s.human_decisions.length > 0, 'PLAN.yaml human_decisions missing/empty');
   if (s.live) {
-    c('live-a2-binary-matches-pin', s.live.jcode_a2.sha256 === a2, `A2 binary sha256 ${String(s.live.jcode_a2.sha256).slice(0, 16)} != pin`);
+    const bins = [s.live.jcode_a2, s.live.jcode_a3_candidate];
+    const holder = bins.find((b) => b.sha256 === a2);
+    c('live-pinned-binary-matches-pin', !!holder, `no known binary matches the pin ${a2.slice(0, 16)} (A2 ${String(s.live.jcode_a2.sha256).slice(0, 16)}, A3 ${String(s.live.jcode_a3_candidate.sha256).slice(0, 16)})`);
+    c('live-pin-is-a3-binary', s.live.jcode_a3_candidate.sha256 === a2, `the pinned sha256 is not the A3 binary's (${String(s.live.jcode_a3_candidate.sha256).slice(0, 16)})`);
     c('live-ollama-matches-pin', s.live.ollama_version === s.pins.ollama_version, `running Ollama ${s.live.ollama_version} != pin ${s.pins.ollama_version}`);
     for (const [k, d] of Object.entries(s.pins.model_digests)) c(`live-model-${k}`, s.live.model_digests[k] === d, `${k} digest ${String(s.live.model_digests[k]).slice(0, 16)} != pin ${d.slice(0, 16)}`);
   }

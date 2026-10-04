@@ -1,4 +1,10 @@
-# Post-hardware runbook (machine-oriented; do not start before the hardware is installed)
+# Post-hardware runbook - OPTIONAL, NOT PLANNED (kept for reference)
+
+> Status 2026-10-04: **not planned.** The project decided that the existing CPU-only machine is the evaluation
+> environment (PLAN `H_hardware.target_environment`), and the CPU-target re-pin was executed that way (`REPIN.md`).
+> Nothing in this file is a prerequisite for C and it must not be started as if it were. It stays on record because it
+> is the only written sequence for the optional case "a dedicated GPU is installed later"; if that ever happens, the
+> re-pin is a NEW re-pin for target GPU (repin.mjs `--target GPU`), not a continuation of the CPU one.
 
 Deterministic sequence from "hardware installed" to "C may begin". It does not replace `REPIN.md` (the
 specification) or `repin.mjs` (its executable form); it fixes the order, the exact commands, the expected output
