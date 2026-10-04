@@ -4,7 +4,17 @@
 // ~/.jcode is never used (JCODE_HOME points at the scenario home; USERPROFILE/HOME are left alone, as in
 // editstring.mjs since it was introduced).
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process'; import os from 'node:os'; import { fileURLToPath } from 'node:url';
+
+/** First line of evfp.mjs for the user's real ~/.jcode ("~/.jcode entries=N tree=<sha1>"): the guard that a fake-provider
+ *  run left the user's jcode state untouched (each scenario uses its own JCODE_HOME). */
+export function jcodeHomeFingerprint() {
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'evfp-')), 'ev.txt');
+  spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'evfp.mjs'), out]);
+  let line = null; try { line = fs.readFileSync(out, 'utf8').split(/\r?\n/)[0]; } catch { /* */ }
+  fs.rmSync(path.dirname(out), { recursive: true, force: true });
+  return line;
+}
 
 export const chunk = (delta, finish = null, extra = {}) => `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', model: 'hermes-local-32k', system_fingerprint: 'fp_ollama', choices: [{ index: 0, delta, finish_reason: finish }], ...extra })}\n\n`;
 const usage = { usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } };

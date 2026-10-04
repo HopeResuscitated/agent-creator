@@ -18,7 +18,7 @@
 //   T6   arguments split across deltas are assembled once (file written once, correct content)
 // Output: one line per scenario per build, then COMPARE lines and A3OFFLINE PASS|FAIL. Exit 0/1, 3 usage.
 import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os';
-import { R, runScenario } from './fakeprov.mjs';
+import { R, runScenario, jcodeHomeFingerprint } from './fakeprov.mjs';
 
 const argv = process.argv.slice(2); const flag = (n) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : undefined; };
 const A = flag('a'), B = flag('b'), RECOMPARE = flag('recompare');
@@ -74,6 +74,7 @@ export const INVARIANTS = {
 const EXPECT_E = { a: { E2_string_strict: SEED, E3_string_raw_newlines: SEED }, b: { E2_string_strict: APPLIED, E3_string_raw_newlines: APPLIED } };
 
 const only = flag('only') ? flag('only').split(',') : null;
+const evBefore = RECOMPARE ? null : jcodeHomeFingerprint();
 let fails = 0; const all = RECOMPARE ? JSON.parse(fs.readFileSync(RECOMPARE, 'utf8')) : { a: {}, b: {} };
 for (const sc of SCENARIOS) {
   if (only && !only.includes(sc.id)) continue;
@@ -89,6 +90,10 @@ for (const sc of SCENARIOS) {
   const same = signature(all.a[sc.id]) === signature(all.b[sc.id]);
   const ok = sc.differs ? !same : same; if (!ok) fails++;
   console.log(`${ok ? 'ok  ' : 'FAIL'} COMPARE ${sc.id.padEnd(28)} ${same ? 'identical' : 'differs'}${sc.differs ? ' (expected to differ)' : ''}`);
+}
+if (!RECOMPARE) {
+  const evAfter = jcodeHomeFingerprint(); const same = !!evBefore && evBefore === evAfter; if (!same) fails++;
+  console.log(`${same ? 'ok  ' : 'FAIL'} ~/.jcode unchanged: ${evAfter}${same ? '' : ` (before: ${evBefore})`}`);
 }
 if (!RECOMPARE) fs.writeFileSync(path.join(OUT, 'a3offline.json'), JSON.stringify(all, null, 1));
 console.log(`A3OFFLINE ${fails ? `FAIL (${fails})` : 'PASS'} out=${OUT}`);

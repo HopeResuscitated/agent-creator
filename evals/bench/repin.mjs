@@ -21,7 +21,7 @@
 //     side effect is stage 3's 1-token request to read the model placement (the same request as suite.sh's warm-up),
 //     which loads the model if it is not loaded
 import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto'; import http from 'node:http';
-import { execFileSync, spawnSync } from 'node:child_process'; import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url';
+import { execFileSync, spawnSync } from 'node:child_process'; import { jcodeHomeFingerprint } from './fakeprov.mjs'; import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
@@ -110,12 +110,15 @@ const STAGE_IMPL = {
       { name: 'a3-branch-commit', ok: rev === DEFAULTS.a3Commit, detail: rev },
     ];
     if (!dry) {
+      const evBefore = jcodeHomeFingerprint();
       const ef = run(process.execPath, [path.join(HERE, 'editstring.mjs'), opts.a3Bin, 'A3', '--expect', 'fixed']);
       const eu = run(process.execPath, [path.join(HERE, 'editstring.mjs'), DEFAULTS.a2Bin, 'A2', '--expect', 'unfixed']);
       const ao = run(process.execPath, [path.join(HERE, 'a3offline.mjs'), '--a', DEFAULTS.a2Bin, '--b', opts.a3Bin]);
       checks.push({ name: 'editstring-a3-fixed', ok: ef.code === 0 && /EDITSTRING PASS/.test(ef.out), detail: ef.out.trim().split('\n').pop() },
         { name: 'editstring-a2-unfixed', ok: eu.code === 0 && /EDITSTRING PASS/.test(eu.out), detail: eu.out.trim().split('\n').pop() },
         { name: 'a3offline', ok: ao.code === 0 && /A3OFFLINE PASS/.test(ao.out), detail: ao.out.trim().split('\n').pop() });
+      const evAfter = jcodeHomeFingerprint();
+      checks.push({ name: 'jcode-home-unchanged', ok: !!evBefore && evBefore === evAfter, detail: evAfter ?? 'unreadable' });
     } else checks.push({ name: 'editstring + a3offline', ok: true, detail: 'not run in --dry-run (offline, ~4 min); last result 2026-10-04: PASS' });
     return { checks, data: { jcode_bin: opts.a3Bin, jcode_sha256: sha } };
   },
