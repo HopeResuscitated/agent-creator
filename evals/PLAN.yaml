@@ -6,7 +6,7 @@ branch: cierra-wip-2026-09-29      # PUSH STATE UNRESOLVED: origin has this bran
                                    # session) although this file said "local only, never pushed". Local is ahead of
                                    # origin by the commits under harness_commits (15 at the 2026-10-03 pre-C docs commit).
                                    # Hermes has not pushed. jcode-evalpin has no upstream configured; also never pushed.
-head: 59ccb11                      # last harness-code commit 2026-10-04 (audit closeout: test-harness fixes only); see harness_commits
+head: a129fe0                      # last code/docs commit 2026-10-04 (CPU target reframe; A3 pinned at 8295bb7); see harness_commits
 updated: 2026-10-04
 
 pins:                              # the evaluation contract; run.ts refuses (exit 2) on any mismatch
