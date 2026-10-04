@@ -50,10 +50,12 @@ test('modelfileDiff: only the num_gpu 0 line may go', () => {
 });
 test('cpreflight and repin agree on the stage list', () => { assert.deepEqual(REPIN_STAGES, STAGES); });
 
+const FP = 'e'.repeat(64);
 const ready = () => ({
-  plan: { branch: 'b', phases: { H_hardware: { status: 'DECIDED - x' }, A3_edit_string_args: { status: 'AUTHORITATIVE (pinned)' }, C_rebaseline: { status: 'NOT STARTED - ready', preregistration: Object.fromEntries(PREREG_KEYS.map((k) => [k, 'x'])) } } },
+  plan: { branch: 'b', pins: { t01_fingerprint: `${FP} (A3 pin, re-pin 2026-xx)` }, phases: { H_hardware: { status: 'DECIDED - x', quant_decision: { quant: 'Q4_K_M', numbers: {} } }, A3_edit_string_args: { status: 'AUTHORITATIVE (pinned)' }, C_rebaseline: { status: 'NOT STARTED - ready', preregistration: { ...Object.fromEntries(PREREG_KEYS.map((k) => [k, 'x'])), quant: 'Q4_K_M' } } } },
   env: { jcode_sha256: 'a'.repeat(64), model_server: { ollama_version: '0.34.4', models: { 'hermes-local-32k': 'b'.repeat(64) } } },
-  record: { stages: Object.fromEntries(REPIN_STAGES.map((s) => [s, { status: 'PASS' }])), pins: { jcode_sha256: 'a'.repeat(64), models: { 'hermes-local-32k': 'b'.repeat(64) }, ollama_version: '0.34.4' } },
+  record: { stages: { ...Object.fromEntries(REPIN_STAGES.map((s) => [s, { status: 'PASS' }])), '1': { status: 'PASS', checks: [{ name: 'gpu-visible (discrete: nvidia-smi or ROCm)', ok: true }] }, '11': { status: 'PASS', data: { t01_fingerprint: FP } }, '12': { status: 'PASS', data: { quant: 'Q4_K_M' } } },
+    ollama_env: { OLLAMA_KV_CACHE_TYPE: 'q8_0' }, pins: { jcode_sha256: 'a'.repeat(64), models: { 'hermes-local-32k': 'b'.repeat(64) }, ollama_version: '0.34.4' } },
   gitClean: true, branch: 'b',
 });
 const blocked = (st) => staticChecks(st).filter((r) => !r.ok).map((r) => r.name);
@@ -71,6 +73,14 @@ test('cpreflight: each missing prerequisite blocks', () => {
   assert.deepEqual(m((s) => { s.plan.phases.C_rebaseline.status = 'IN PROGRESS'; }), ['plan-c-not-started']);
   assert.deepEqual(m((s) => { delete s.plan.phases.C_rebaseline.preregistration.timeouts; }), ['plan-c-preregistered']);
   assert.deepEqual(m((s) => { s.gitClean = false; }), ['git-clean']);
+  assert.deepEqual(m((s) => { s.record.stages['1'].checks[0].ok = false; }), ['repin-gpu-visible']);
+  assert.deepEqual(m((s) => { s.record.ollama_env = null; }), ['repin-ollama-env-recorded']);
+  assert.deepEqual(m((s) => { s.record.ollama_env = {}; }), ['repin-ollama-env-recorded']);
+  assert.deepEqual(m((s) => { s.plan.pins.t01_fingerprint = 'df1332d786b0ee3b57f58eb6e7eff90a69e366e5998efe8f9d3b6b5319d60e64 (A2 pin)'; }), ['repin-t01-fingerprint-in-plan']);
+  assert.deepEqual(m((s) => { s.record.stages['11'].data.t01_fingerprint = null; }), ['repin-t01-fingerprint-in-plan']);
+  assert.deepEqual(m((s) => { s.plan.phases.C_rebaseline.preregistration.quant = 'Q8_0'; }), ['repin-quant-consistent']);
+  assert.deepEqual(m((s) => { s.record.stages['12'].data.quant = 'Q8_0'; }), ['repin-quant-consistent']);
+  assert.deepEqual(m((s) => { delete s.plan.phases.H_hardware.quant_decision; }), ['repin-quant-consistent']);
 });
 test('cpreflight: the current repository is BLOCKED (A2 pinned, H open, A3 candidate, C not pre-registered)', () => {
   const yaml = createRequire(path.join(EVALS, '..', 'package.json'))('js-yaml');

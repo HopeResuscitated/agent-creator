@@ -41,6 +41,16 @@ export function staticChecks({ plan, env, record, gitClean, branch }) {
   c('pin-not-a2', env.jcode_sha256 !== A2_SHA, 'baseline-env.json still pins the A2 jcode (re-pin not done)');
   c('pin-not-cpu-model', env.model_server?.models?.['hermes-local-32k'] !== CPU_MODEL_DIGEST, 'baseline-env.json still pins the CPU-only model digest (num_gpu 0)');
   const ph = plan?.phases ?? {};
+  if (record) {
+    // what the re-pin measured must be what PLAN.yaml now states (REPIN.md steps 1, 11, 12, 13)
+    const s1 = record.stages?.['1']?.checks ?? [];
+    c('repin-gpu-visible', s1.some((x) => /^gpu-visible/.test(x.name) && x.ok), 're-pin stage 1 did not record a visible discrete GPU');
+    c('repin-ollama-env-recorded', !!record.ollama_env && typeof record.ollama_env === 'object' && Object.keys(record.ollama_env).length > 0, 're-pin record has no Ollama server settings (stage 1)');
+    const fp = record.stages?.['11']?.data?.t01_fingerprint;
+    c('repin-t01-fingerprint-in-plan', /^[0-9a-f]{64}$/.test(String(fp)) && String(plan?.pins?.t01_fingerprint ?? '').startsWith(fp), `PLAN.yaml pins.t01_fingerprint is not the re-pin's T01x4 value ${String(fp).slice(0, 16)} (REPIN step 11)`);
+    const q = ph.H_hardware?.quant_decision?.quant, pq = ph.C_rebaseline?.preregistration?.quant;
+    c('repin-quant-consistent', !!q && record.stages?.['12']?.data?.quant === q && pq === q, `quant: decision ${q ?? 'none'}, re-pin stage 12 ${record.stages?.['12']?.data?.quant ?? 'none'}, C pre-registration ${pq ?? 'none'} must all be equal`);
+  }
   c('plan-h-decided', ph.H_hardware && !/^BLOCKED/.test(String(ph.H_hardware.status)), 'PLAN.yaml H_hardware is still BLOCKED (hardware decision)');
   c('plan-a3-authoritative', ph.A3_edit_string_args && !/NOT YET AUTHORITATIVE/.test(String(ph.A3_edit_string_args.status)), 'PLAN.yaml still marks A3 NOT YET AUTHORITATIVE (re-pin not recorded in PLAN)');
   c('plan-c-not-started', /^NOT STARTED/.test(String(ph.C_rebaseline?.status ?? '')), `C_rebaseline status is "${String(ph.C_rebaseline?.status ?? '').slice(0, 60)}" (a started C needs its own resume decision, not this preflight)`);
@@ -54,34 +64,52 @@ const sha256 = (f) => { try { return crypto.createHash('sha256').update(fs.readF
 const req = (method, p, body) => new Promise((resolve) => { const q = http.request({ host: '127.0.0.1', port: 11434, path: p, method, agent: false, timeout: 600000, headers: body ? { 'content-type': 'application/json' } : {} }, (res) => { let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } }); }); q.on('error', () => resolve(null)); q.on('timeout', () => { q.destroy(); resolve(null); }); q.end(body); });
 const ps1 = (cmd) => { const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', cmd], { encoding: 'utf8' }); return r.status === 0 ? r.stdout.trim() : null; };
 
-async function liveChecks({ env, record, warm }) {
+/** The live probes, injectable so the decision logic can be tested with fixtures (evals/test/cpreflight.test.mjs). */
+export const realIO = {
+  sha256,
+  version: async () => (await req('GET', '/api/version'))?.version ?? null,
+  tags: async () => (await req('GET', '/api/tags'))?.models ?? null,
+  warm: async () => req('POST', '/api/generate', JSON.stringify({ model: 'hermes-local-32k', prompt: 'ok', stream: false, options: { num_predict: 1 } })),
+  ps: async () => (await req('GET', '/api/ps'))?.models ?? null,
+  ollamaEnv: () => { const oe = spawnSync(process.execPath, [path.join(HERE, 'ollamaenv.mjs'), '--json'], { encoding: 'utf8' }); try { return JSON.parse(oe.stdout).material; } catch { return null; } },
+  autoUpdate: () => { try { const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(path.join(process.env.LOCALAPPDATA ?? '', 'Ollama', 'db.sqlite'), { readOnly: true }); const a = db.prepare('select auto_update_enabled as a from settings').get()?.a; db.close(); return a ?? null; } catch { return null; } },
+  battery: () => ps1('$b=@(Get-CimInstance Win32_Battery); if (-not $b.Count) { "none" } else { $b[0].BatteryStatus }'),
+  jcodeCount: () => ps1('@(Get-Process -Name jcode -ErrorAction SilentlyContinue).Count'),
+  meterPort: () => ps1('@(Get-NetTCPConnection -LocalAddress 127.0.0.2 -LocalPort 11439 -State Listen -ErrorAction SilentlyContinue).Count'),
+  ollamaConns: () => ps1('@(Get-NetTCPConnection -RemotePort 11434 -State Established -ErrorAction SilentlyContinue).Count'),
+};
+
+export async function liveChecks({ env, record, warm }, io = realIO) {
   const out = []; const c = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? '' : why });
   const bin = record?.jcode_bin;
-  c('live-jcode', bin && sha256(bin) === env.jcode_sha256, `pinned jcode binary ${bin ?? '(unknown: no re-pin record)'} missing or hash != pin`);
-  const ver = await req('GET', '/api/version');
-  c('live-ollama-version', ver?.version === env.model_server?.ollama_version, `Ollama ${ver?.version ?? 'unreachable'} != pin ${env.model_server?.ollama_version}`);
-  const tags = await req('GET', '/api/tags');
+  c('live-jcode', bin && io.sha256(bin) === env.jcode_sha256, `pinned jcode binary ${bin ?? '(unknown: no re-pin record)'} missing or hash != pin`);
+  const ver = await io.version();
+  c('live-ollama-version', !!ver && ver === env.model_server?.ollama_version, `Ollama ${ver ?? 'unreachable'} != pin ${env.model_server?.ollama_version}`);
   const want = env.model_server?.models?.['hermes-local-32k'];
-  const have = tags?.models?.find((m) => m.name === 'hermes-local-32k:latest')?.digest;
+  const have = (await io.tags())?.find((m) => m.name === 'hermes-local-32k:latest')?.digest;
   c('live-model-digest', have && have === want, `hermes-local-32k digest ${String(have).slice(0, 16)} != pin ${String(want).slice(0, 16)}`);
-  if (warm) await req('POST', '/api/generate', JSON.stringify({ model: 'hermes-local-32k', prompt: 'ok', stream: false, options: { num_predict: 1 } }));
-  const psj = await req('GET', '/api/ps');
-  const m = psj?.models?.find((x) => x.name === 'hermes-local-32k:latest');
+  if (warm) await io.warm();
+  const m = (await io.ps())?.find((x) => x.name === 'hermes-local-32k:latest');
   c('live-placement-100-gpu', m && m.size > 0 && m.size_vram >= m.size, m ? `model placement is not 100% GPU (size_vram ${m.size_vram} of ${m.size})` : 'model not loaded: placement cannot be verified (use --warm)');
-  const oe = spawnSync(process.execPath, [path.join(HERE, 'ollamaenv.mjs'), '--json'], { encoding: 'utf8' });
-  let cur = null; try { cur = JSON.parse(oe.stdout).material; } catch { /* */ }
+  const cur = io.ollamaEnv();
   c('live-ollama-env', cur && record?.ollama_env && JSON.stringify(cur) === JSON.stringify(record.ollama_env), 'Ollama server settings differ from those recorded at the re-pin (or could not be read)');
-  let au = null; try { const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(path.join(process.env.LOCALAPPDATA ?? '', 'Ollama', 'db.sqlite'), { readOnly: true }); au = db.prepare('select auto_update_enabled as a from settings').get()?.a; db.close(); } catch { /* */ }
+  const au = io.autoUpdate();
   c('ollama-auto-update-off', au === 0, au === null ? 'cannot read Ollama auto_update_enabled (db.sqlite)' : 'Ollama automatic updates are ON (tray icon > Settings > off)');
-  const bat = ps1('$b=@(Get-CimInstance Win32_Battery); if (-not $b.Count) { "none" } else { $b[0].BatteryStatus }');
+  const bat = io.battery();
   c('machine-ac', bat === 'none' || bat === '2', `not on AC (BatteryStatus=${bat})`);
-  const j = ps1("@(Get-Process -Name jcode -ErrorAction SilentlyContinue).Count");
+  const j = io.jcodeCount();
   c('machine-no-jcode', j === '0', `${j ?? '?'} jcode.exe process(es) running`);
-  const mp = ps1("@(Get-NetTCPConnection -LocalAddress 127.0.0.2 -LocalPort 11439 -State Listen -ErrorAction SilentlyContinue).Count");
+  const mp = io.meterPort();
   c('machine-meter-port-free', mp === '0', 'meter port 127.0.0.2:11439 in use');
-  const oc = ps1("@(Get-NetTCPConnection -RemotePort 11434 -State Established -ErrorAction SilentlyContinue).Count");
+  const oc = io.ollamaConns();
   c('machine-ollama-exclusive', oc === '0', `${oc ?? '?'} connection(s) to Ollama from other clients`);
   return out;
+}
+
+/** READY only if there is at least one check and every check passed. Pure. */
+export function verdict(res) {
+  const bad = res.filter((r) => !r.ok);
+  return { ready: res.length > 0 && bad.length === 0, line: bad.length || !res.length ? `BLOCKED: ${bad.map((r) => r.why).join('; ') || 'no checks ran'}` : 'READY FOR C' };
 }
 
 function testChecks(skip) {
@@ -101,7 +129,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const res = [...staticChecks({ plan, env, record, gitClean: g('status', '--porcelain') === '', branch: g('rev-parse', '--abbrev-ref', 'HEAD') }),
     ...(await liveChecks({ env, record, warm: argv.includes('--warm') })), ...testChecks(argv.includes('--skip-tests'))];
   for (const r of res) console.log(r.ok ? `ok      ${r.name}` : `BLOCKED ${r.name}: ${r.why}`);
-  const bad = res.filter((r) => !r.ok);
-  console.log(bad.length ? `BLOCKED: ${bad.map((r) => r.why).join('; ')}` : 'READY FOR C');
-  process.exit(bad.length ? 1 : 0);
+  const v = verdict(res);
+  console.log(v.line);
+  process.exit(v.ready ? 0 : 1);
 }
