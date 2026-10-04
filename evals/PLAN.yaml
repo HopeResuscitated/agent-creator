@@ -140,9 +140,10 @@ phases:
                "override warns and proceeds; --write-env keeps the pin; --stage-tools-only unaffected",
                "T01 git-bash contained and PowerShell control (hostile env): identical new fingerprint 9609faa1"]
     fingerprint_change: "intentional: T01 4dcba4e1 -> 9609faa1 (model_server added). Earlier runs are not fingerprint-comparable."
-    open_host_setting: "Ollama desktop auto_update_enabled=1 and v0.35.1 is already downloaded: it installs on the next
-                        app restart. The gate turns that into a refusal, not a silent change. To prevent it: Ollama
-                        app Settings -> turn off automatic updates (user action; not changed by Hermes)."
+    open_host_setting: "Ollama desktop auto_update_enabled=1 (re-checked read-only 2026-10-04) and v0.35.1 is already staged: it
+                        installs on the next app restart. The gate turns that into a refusal, not a silent change. To prevent
+                        it, BEFORE the next Ollama restart: tray icon -> Settings -> disable automatic updates (user action;
+                        NOT done; not changed by Hermes; staged installer not deleted)."
   A1_investigate:
     status: COMPLETE (read-only, jcode source C:/Users/cierra/jcode-evalpin @ 1fbb2e1b4)
     findings:
@@ -284,7 +285,7 @@ phases:
                   A2 retried it. Classification: TIMEOUT, CPU/model throughput; timeout unchanged (30 min)."
     accept: "no T05 failure ends on an unrecovered incomplete stream; retries bounded and logged"
   A3_edit_string_args:
-    status: "ADOPTED (user, 2026-10-03) - prepared for the next re-pin; NOT pinned, NOT authoritative, NOT real-task validated.
+    status: "ADOPTED AS CANDIDATE (user, 2026-10-03), NOT YET AUTHORITATIVE - prepared for the next re-pin; NOT pinned, NOT real-task validated.
              Every validated result so far comes from the A2 binary. Becomes authoritative only after REPIN.md steps 4-11 pass."
     prepared: ["binary identity re-verified 2026-10-03: sha256 42ed4012...0bab7, jcode v0.88.65-dev (710560f91), branch head 710560f91154f5fed6f1ec9a34b9852a471d8b5f",
                "scenario test in the repo: evals/bench/editstring.mjs; 2026-10-03: A3 --expect fixed PASS, A2 --expect unfixed PASS, ~/.jcode unchanged",
@@ -338,7 +339,7 @@ phases:
               "relay 12/12, contained-e2e 9/9", "meter kill-abort ttfb 176 ms", "zero-task suites contained + control: exit 0, AC, no sleep, TRIP 0",
               "repo fingerprint + git status + ~/.jcode unchanged"]
   C_rebaseline:
-    status: BLOCKED on H (A2 is complete; C must run on the final hardware + model, so running it now would be discarded)
+    status: "NOT STARTED - BLOCKED on H (A2 is complete; C must run on the final hardware + model, so running it now would be discarded)"
     tasks: [T13, T14, T17, T04, T05, T03, T08, T01]
     design: "3 reps per mode, alternating; paired analysis across tasks; pre-registered before running"
     primary_metrics: [incomplete_stream_rate, retry_recovery_rate, invariants]
@@ -348,12 +349,13 @@ phases:
                     "contained-vs-control disagreement <= contained-vs-contained", "same-mode disagreement well below 41%"]
     preconditions_left: ["H decided", "REPIN.md steps 1-12 PASS (A3 pinned then)", "Ollama auto-update off (manual, user) or deliberately re-pinned",
                          "C pre-registered in this file (tasks, reps, order, timeouts, decision rule) before the first C run", "machine on AC and exclusive"]
-    preconditions_done: ["A3 adopted (2026-10-03)", "repo AGENTS.md corrected (HEAD); C keeps eval-baseline-v1, whose AGENTS.md still has the old text
+    preconditions_done: ["A3 adopted as candidate (2026-10-03; becomes authoritative only via REPIN.md)", "repo AGENTS.md corrected (HEAD); C keeps eval-baseline-v1, whose AGENTS.md still has the old text
                          (sandboxes come from the tag, not HEAD) - same text in every run, so no contained-vs-control bias"]
   D_gate:
     status: "NOT RUN - after C (foundation complete -> infrastructure phase)"
-    definition: "NOT WRITTEN beyond 'after C'. Proposal (Hermes, adopt or change before D): C decision rule passed + one 18-task
-                 contained + control run on the final pin (T02 T06 T07 T09-T12 T15 T16 T18 otherwise never run on it)"
+    definition: "NOT ADOPTED - nothing beyond 'after C' is a requirement"
+    proposal: "PROPOSED, NOT APPROVED (Hermes; user decides before D, not needed for C): 1) C passes its decision rule; 2) one 18-task
+               contained + control run on the final pin (T02 T06 T07 T09-T12 T15 T16 T18 otherwise never run on it)"
   pre_C_preparation:
     status: "COMPLETE 2026-10-03 - non-hardware work only; C not started, nothing re-baselined, A3 not pinned, Ollama not changed, nothing pushed"
     done: ["A3 adopted and prepared (above)", "evals/REPIN.md: deterministic re-pin sequence with pass conditions",
@@ -362,12 +364,24 @@ phases:
            "quanttrial.mjs offline 13/13 + real-Ollama smoke", "editstring.mjs both ways PASS", "attrmon.ps1 in repo",
            "AGENTS.md corrected", "Ollama auto-update: still ON, manual action documented (HANDOFF)",
            "Hermes compression -> provider main, model '' (2026-10-04, user instruction; operational config, not a baseline change)"]
-    coverage_map: "HANDOFF 'Coverage': C needs T13 T14 T17 T04 T05 T03 T08 T01; the other 10 tasks stay historical (cycle 6) and are
-                   proposed for D; T04 reruns inside C"
-known_limitations: ["T08 + T13: CPU/model-throughput TIMEOUT post-A2", "T03/T14/T17: CPU-throughput TIMEOUT (cycle 8, pre-A2)",
-                      "T05 control: 2/5 TIMEOUT at 1201 s (graded tests pass; recorded as TIMEOUT)",
-                      "model occasionally rewrites protected tests and misreports it (b5 T05 contained FAIL, on record)",
-                      "malformed tool arguments: Ollama XML side handled by A2; edits-as-string fixed by A3 (adopted, not pinned); fused keys stay rejected"]
+    coverage_map: "HANDOFF 'Coverage': C needs T13 T14 T17 T04 T05 T03 T08 T01; the other 10 tasks stay historical (cycle 6); running them
+                   before D is only PROPOSED (not approved); T04 reruns inside C"
+checkpoint: "HARDWARE-READY 2026-10-04: all non-hardware work done; C NOT STARTED; no re-baseline; A2 pin unchanged; Ollama 0.34.4
+             unchanged; nothing pushed. Next: user hardware decision, then evals/REPIN.md step 1"
+evidence_classes:
+  authoritative: ["clean A2 validation 2026-10-02 (validation_a2_clean)", "b6 = the authoritative Phase B run", "final regression 2026-10-03",
+                  "gates.sh 15/15 + T01 x4 2026-10-03 (pre_C_preparation)", "reference agent 18/18 (2026-10-03)"]
+  historical: ["cycles 6-8 (pre-A2 jcode)", "b5 (battery + sleep; not used for authoritative timing)",
+               "the two CONTAMINATED A2 attempts", "superseded pins (1fbb2e1b4, pre-3f9df6c fingerprints)"]
+  candidate_fixes: ["A3 710560f91 (42ed4012...): ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE, not pinned"]
+  hardware_dependent: ["REPIN.md steps 1-12 incl. quant trial", "C_rebaseline", "D_gate", "infrastructure_phase"]
+  proposed_not_approved: ["D_gate.proposal"]
+known_limitations:
+  cpu_throughput: ["T08 + T13: TIMEOUT post-A2 (CPU/model throughput; progressing, not stalled)",
+                   "T03/T14/T17: TIMEOUT (cycle 8, pre-A2; historical CPU-throughput limitation)",
+                   "T05 control: 2/5 authoritative runs TIMEOUT at 1201 s (graded tests pass; recorded as TIMEOUT, not PASS)"]
+  model_behaviour: ["model occasionally rewrites protected tests and misreports it (b5 T05 contained FAIL, on record)",
+                    "malformed tool arguments: Ollama XML side handled by A2; edits-as-string fixed by A3 (candidate, not pinned); fused keys stay rejected"]
 
 infrastructure_phase:  # one change at a time, each followed by an 8-task contained + control re-check
   E1: "contained 'work on my folder' command (replaces running jcode uncontained)"

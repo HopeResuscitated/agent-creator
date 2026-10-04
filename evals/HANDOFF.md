@@ -1,6 +1,6 @@
 # Handoff: pick up here
 
-Updated 2026-10-03 (pre-C preparation complete). Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
+Updated 2026-10-04 (HARDWARE-READY CHECKPOINT: all non-hardware work done; C not started). Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
 `evals/REPIN.md`. Evidence: `C:\Users\cierra\hermes-bench-archive` (cycle9 = A2, Phase B, A3 candidate, final
 regression, pre-C tooling checks).
 
@@ -8,6 +8,16 @@ regression, pre-C tooling checks).
 Containment is proven (all invariants hold; decision rule passed). Last harness-code commit `5d3e8fe`; later commits add
 re-pin tooling and documentation only. All work is local (branch `cierra-wip-2026-09-29`); nothing has been pushed.
 **C has not started and must not start before the hardware decision.**
+
+### Evidence classes (how to read every result in this file)
+| Class | What belongs here |
+|---|---|
+| **Authoritative** | Produced on the current pins (A2 jcode `7ed7403f8`/`f76eff11...`, Ollama 0.34.4, model `1ef2c71e...`), AC, no sleep, no external activity: clean A2 validation 2026-10-02, b6 (the authoritative Phase B run), final regression 2026-10-03, gates.sh + T01 x4 2026-10-03, reference agent 18/18 |
+| **Historical** | Kept on record, not reinterpreted, not used for authoritative timing: cycles 6-8 (pre-A2 jcode), b5 (battery + sleep), the two CONTAMINATED A2 attempts, superseded pins |
+| **Candidate fix** | A3 (`710560f91`, `42ed4012...`): ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE, not pinned; only fake-server and unit evidence |
+| **Hardware-dependent (not done)** | REPIN.md steps 1-12, quant trial, C, everything after C |
+| **Proposed, not approved** | D gate definition (see Coverage); no other proposal is in force |
+| **Known limitations** | CPU/model-throughput and model-behaviour items below; recorded as measured (TIMEOUT stays TIMEOUT) |
 
 ### Completed
 | Item | Evidence |
@@ -22,9 +32,11 @@ re-pin tooling and documentation only. All work is local (branch `cierra-wip-202
 | Containment / security gates | contained-child 10/10, secprobe 20/20, relay 12/12, contained e2e 9/9, meter kill-abort; all pin refusals (exit 2) |
 | Fingerprint validation | 0 mismatches in every comparison; T01 fingerprint `df1332d7...` identical on 2026-10-02 and 2026-10-03, 4 launch paths |
 | Reference agent | 18/18 (every grader passable) |
-| Pre-C preparation | A3 adopted (not pinned), `REPIN.md`, re-pin tooling built and exercised, AGENTS.md corrected |
+| Pre-C preparation | A3 adopted as candidate (not pinned), `REPIN.md`, re-pin tooling built and exercised, AGENTS.md corrected |
+| Hermes compression on the main provider | operational config only (see "Hermes compression model"); not an evaluation input |
 
 ### Known limitations (kept on record; none is hidden or reclassified)
+CPU / model throughput (this machine):
 - **T08**: TIMEOUT in all 4 post-A2 runs. CPU/model throughput (continuous progress, decode 3.9-4.8 tok/s, first token
   up to 274 s, reference passes). Timeout unchanged (30 min).
 - **T13**: TIMEOUT both modes post-A2 (2700 s). CPU/model throughput; A2 removed the early exit on partial prose.
@@ -32,6 +44,8 @@ re-pin tooling and documentation only. All work is local (branch `cierra-wip-202
   also had build errors). Historical CPU-throughput limitation; not rerun after A2.
 - **T05 control timing**: 2 of 5 authoritative control runs are TIMEOUT at 1201 s (tests passed when graded; recorded
   as TIMEOUT, not PASS). T05 sits at its limit on this CPU.
+
+Model behaviour (independent of hardware):
 - **Model rewrites protected tests**: b5 T05 contained FAIL (battery run, kept on record): the agent rewrote the
   protected test file, failed to revert it, and claimed it never touched it. The grader caught it and is unchanged.
   Model behaviour; not reproduced in b6.
@@ -44,7 +58,7 @@ re-pin tooling and documentation only. All work is local (branch `cierra-wip-202
 - new-hardware performance validation (`REPIN.md` steps 1, 3, 12)
 - quant trial (`REPIN.md` step 12)
 - C re-baseline
-- D gate (after C; its content is not yet defined, see Coverage)
+- D gate (after C; definition only PROPOSED, not adopted: see Coverage)
 - remaining task coverage on the final pin (see Coverage)
 
 ## Pins (run.ts refuses, exit 2, on any mismatch)
@@ -58,7 +72,7 @@ re-pin tooling and documentation only. All work is local (branch `cierra-wip-202
 
 Runs before `3f9df6c` are not fingerprint-comparable (the jcode hash changed on purpose).
 
-## A3: adopted for the next re-pin, not authoritative
+## A3: ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE (prepared for the next re-pin, not pinned)
 - **What**: jcode `710560f91` = the pinned A2 commit `7ed7403f8` + one change in `edit.rs`: a string `edits` that
   decodes to an array (strict JSON, or after escaping raw newline/CR/tab inside string literals) is used as the array;
   everything else errors as before.
@@ -86,6 +100,18 @@ Runs before `3f9df6c` are not fingerprint-comparable (the jcode hash changed on 
 **T01 x4 (2026-10-03, A2 pin, AC)**: PowerShell and git-bash x contained and control: 2 runs (8 launches), T01 PASS 8/8, environment CLEAN, every fingerprint `df1332d786b0ee3b57f58eb6e7eff90a69e366e5998efe8f9d3b6b5319d60e64` = the T01 entry of the clean A2 validation (2026-10-02), so DET-1 also holds across days. Pre-A2 `4dcba4e1...` reported DIFFERENT, as expected. The re-pin must replace this value. (A first attempt never launched: Windows PowerShell 5.1 turned node's stderr warning into a terminating error; fixed with Start-Process before both runs.)
 
 ## Hardware decision: technical requirements (facts only; the choice is yours)
+
+### FACTS MEASURED
+Summary (details below):
+- Current Q4_K_M weights: ~17.3 GiB (17.28 GiB, model file size).
+- Current 32k context cache: ~1.6 GiB at the configured q8_0 KV type (~3.0 GiB at f16); computed from the model
+  architecture (48 layers x 4 KV heads x 256 x 32,768 tokens), not read from a GPU.
+- Q8_0 weights: ~30 GiB, an estimate from 30.5B parameters (no Q8_0 file has been downloaded or measured).
+- Additional working memory (compute buffers, runtime overhead): NOT MEASURED.
+- Current CPU throughput: ~3.9-4.8 tok/s decode on AC at 8-11.5k-token prompts.
+- Long-prompt first-token latency: up to ~274 s (b6 T08; 282 s T13, 357 s max in the A2 runs, 801 s once pre-A2).
+- T08 and T13 (and historically T03/T14/T17) TIMEOUTs are CPU/model-throughput limited: progressing, not stalled.
+
 **Current machine**: AMD Ryzen AI 7 PRO 350 (8 cores / 16 threads), 31.2 GiB RAM, integrated Radeon 860M, no discrete
 GPU; Windows 11 Pro 10.0.26200. Inference is CPU-only by configuration (`num_gpu 0` in the model).
 
@@ -107,11 +133,10 @@ generation; the reference agent passes all 18 tasks; contained and control time 
 pinned model + quant. On this CPU an 8-task suite takes ~2-2.5 h per mode and 5 of the 8 tasks cannot finish in their
 (unchanged) timeouts, so C here would measure CPU limits, not the agent.
 
-**GPU / VRAM**: the project does **not** specify a minimum GPU or VRAM. PLAN only says "local NVIDIA GPU with enough
-VRAM for the chosen quant ... at 32k context, or remote inference via tunnel-to-loopback + egress policy". Arithmetic
-from the model files, not a requirement: Q4_K_M weights are 17.28 GiB (file size); the KV cache at 32,768 tokens is
-~3.0 GiB at f16 or ~1.6 GiB at the configured q8_0 (48 layers x 4 KV heads x 256); Q8_0 weights would be roughly 30
-GiB (estimate from 30.5B parameters, not measured); compute buffers are not measured. **Decision required from you.**
+### HARDWARE DECISION STILL REQUIRED (yours; Hermes does not select hardware)
+**GPU / VRAM**: the project does **not** specify a minimum GPU or VRAM, and none is derived here. PLAN only says "local
+NVIDIA GPU with enough VRAM for the chosen quant ... at 32k context, or remote inference via tunnel-to-loopback + egress
+policy". The sizes in FACTS MEASURED are inputs to your decision, not a requirement or a recommendation.
 
 **Must be measured after installation** (`REPIN.md`): `ollama ps` = 100% GPU for the pinned model (no CPU split);
 first-token latency and decode tok/s at short and ~11k-token prompts (quanttrial summary, cold cache; in-agent values come from the C meters); malformed tool-call rate per
@@ -122,13 +147,13 @@ value is pre-registered in PLAN.yaml before the first C run.
 re-pin rebuilds it with that one line removed (same weights, same other parameters, new digest): `REPIN.md` step 3.
 
 ## Coverage: what has not run on the current pin, and what it is needed for
-C's task list is T13, T14, T17, T04, T05, T03, T08, T01. D has no written definition beyond "after C (foundation
-complete -> infrastructure phase)".
+C's task list is T13, T14, T17, T04, T05, T03, T08, T01. D has no adopted definition beyond "after C (foundation
+complete -> infrastructure phase)". Every "proposed" entry below is a PROPOSAL, NOT APPROVED.
 
 | Item | Last run | Needed by C | Needed by D | Superseded by newer evidence | After A3/hardware |
 |---|---|---|---|---|---|
 | C re-baseline | never | is C | yes (D follows C) | no | run (it is C) |
-| D gate | never | no | is D | no | run after C; define it first (proposal below) |
+| D gate | never | no | is D | no | run after C; definition PROPOSED, not adopted (below) |
 | T04 | cycle 8 PASS both modes (pre-A2) | yes (C task) | via C | partly: A2 only changes truncated-stream handling and T04 had none | rerun inside C |
 | T02 | cycle 6 contained PASS | no | proposed | no | full-suite run before D (proposal) |
 | T06 | cycle 6 FAIL (agent's own tests: ERR_MODULE_NOT_FOUND) | no | proposed | no | same |
@@ -137,18 +162,24 @@ complete -> infrastructure phase)".
 | T11, T12, T15 | cycle 6 FAIL (timeout) | no | proposed | no | same (T12's earlier PASS is INVALID, INV-001) |
 | T16, T18 | cycle 6 PASS | no | proposed | no | same |
 
-The 10 non-C tasks stay historical evidence (pre-A2 jcode, CPU, cycle 6) and are not reinterpreted. Proposal (Hermes,
-for adoption or change before D): D = C's decision rule passed + one 18-task contained + control run on the final pin
+The 10 non-C tasks stay historical evidence (pre-A2 jcode, CPU, cycle 6) and are not reinterpreted.
+
+**D gate: PROPOSED, NOT ADOPTED** (Hermes proposal; yours to adopt, change or reject before D; not needed for C):
+1. C must pass (its pre-registered decision rule);
+2. then one 18-task contained + control run on the final pin
 (the infrastructure phase re-checks only the 8-task set, so the other 10 would otherwise never run on the final pin).
 
-## Ollama auto-update (manual action, yours)
-Still ON: Ollama's settings DB has `auto_update_enabled=1` (read-only check 2026-10-03), the app checks hourly (last
-log line 18:40 "New update available ... v0.35.1"), and the 0.35.1 installer is already downloaded
-(`%LOCALAPPDATA%\Ollama\updates_v2\d5a1390e...\OllamaSetup.exe`, 1.58 GB). It installs when the Ollama app restarts.
-Hermes did not change it (OS/app setting outside the repo). To keep 0.34.4:
-1. Ollama tray icon -> Settings -> turn automatic updates off. Do not quit or restart Ollama before that.
-2. Optional, removes the staged bundle (it is not certain the app ignores an already-downloaded bundle once the setting
-   is off): delete the folder `%LOCALAPPDATA%\Ollama\updates_v2\d5a1390e1510962fac384c97d09b6e4febbffa2797435085c39a80b809b3be06`.
+## Ollama auto-update (manual action, yours; NOT done)
+Validated runtime: **Ollama 0.34.4** (running, `/api/version` 2026-10-04 11:50). Auto-update is still ON: Ollama's
+settings DB has `auto_update_enabled=1` (read-only checks 2026-10-03 and 2026-10-04 11:50), the app checks hourly, and
+the 0.35.1 installer is already staged (`%LOCALAPPDATA%\Ollama\updates_v2\d5a1390e...\OllamaSetup.exe`, 1.58 GB). It
+installs when the Ollama app restarts. Hermes did not change the setting, did not restart Ollama, did not upgrade, and
+did not delete the staged installer (deleting it is not established as necessary once the setting is off, and it is
+outside the repo). **Before the next Ollama restart**, to keep 0.34.4:
+1. Ollama tray icon -> Settings -> disable automatic updates. Do not quit or restart Ollama before that.
+2. Optional, your call: deleting the staged folder
+   `%LOCALAPPDATA%\Ollama\updates_v2\d5a1390e1510962fac384c97d09b6e4febbffa2797435085c39a80b809b3be06` removes the
+   bundle; whether the app would install an already-staged bundle with the setting off is not verified.
 3. Check: `curl http://127.0.0.1:11434/api/version` still `0.34.4`; `app.log` stops logging "New update available".
 If 0.35.1 ever installs, the pin gate refuses every run (exit 2): reinstall 0.34.4 or re-pin deliberately (REPIN step 2).
 
@@ -288,11 +319,18 @@ after a killed generation answers in 173 ms). A meter that dies mid-run is detec
 `meterabort.mjs` now checks this as a gate and fails on the pre-fix meter.
 
 ## Open decisions (yours)
-1. **Hardware / GPU / VRAM** (H), before C. No minimum is specified by the project; see "Hardware decision".
-2. **Ollama auto-update**: turn it off manually (see "Ollama auto-update") to keep 0.34.4.
-3. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
+1. **Hardware / GPU / VRAM** (H), before C: the only decision blocking progress. No minimum is specified by the project;
+   see "Hardware decision".
+2. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
-A3 needs no decision: adopted for the next re-pin, as you approved.
+3. **D gate definition** (adopt / change / reject the PROPOSAL in Coverage): needed before D, not before C.
+
+Manual action, not a decision: disable Ollama automatic updates before the next Ollama restart ("Ollama auto-update").
+Already decided: A3 adopted as candidate for the next re-pin; compression on the main provider.
+
+## Hardware-ready checkpoint (2026-10-04)
+Stopped here by instruction. Done: everything not needing new hardware. Not started: C, re-baseline, A3 pin, Ollama
+change, hardware selection. Next step after your hardware decision and installation: `evals/REPIN.md` step 1.
 
 ## To resume in a new Claude chat
 Paste:

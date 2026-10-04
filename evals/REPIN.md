@@ -20,6 +20,10 @@ Ollama for the whole procedure (run `evals/bench/attrmon.ps1` alongside steps 11
 
 A3 is **not** part of the validated baseline until steps 4-11 pass. Until then every result was produced by the A2 binary.
 
+## Before the hardware change (manual)
+Disable Ollama automatic updates before the next Ollama restart (HANDOFF "Ollama auto-update"); otherwise the staged
+0.35.1 installs and step 2 fails.
+
 ## Steps
 
 1. **Hardware / OS state.** Record in `$R/env.txt`: CPU, RAM, GPU model + VRAM + driver
@@ -93,6 +97,7 @@ A3 is **not** part of the validated baseline until steps 4-11 pass. Until then e
 13. **Then C**: pre-register C in PLAN.yaml (tasks, reps, order, timeouts, decision rule; timeouts unchanged unless a
    new value is decided from step-12 throughput and written down before the first C run), commit, then run C with
    `reduced.sh`-style suites on AC, with attrmon.ps1 running.
+   D is not part of this procedure; its definition is only PROPOSED (HANDOFF "Coverage") until you adopt it.
 
 ## Not allowed in this procedure
 - raising a task timeout to turn a TIMEOUT into a PASS; editing a grader; special-casing a task
