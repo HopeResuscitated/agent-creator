@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { countsAsPass } from '../outcome.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
@@ -38,15 +39,17 @@ out.push(`${'id'.padEnd(5)}${'level'.padEnd(8)}${'base'.padEnd(16)}${'contained'
 let bPass = 0, cPass = 0, bSec = 0, cSec = 0;
 for (const r of run) {
   const b = B[r.id];
-  const note = b && b.pass && !r.pass ? 'REGRESSION' : b && !b.pass && r.pass ? 'IMPROVED' : '';
-  if (b?.pass) bPass++; if (r.pass) cPass++; bSec += b?.seconds ?? 0; cSec += r.seconds;
+  // countsAsPass: a legacy entry with pass=true + timedOut=true is a TIMEOUT, not a PASS (totals and notes too).
+  const bp = countsAsPass(b), cp = countsAsPass(r);
+  const note = b && bp && !cp ? 'REGRESSION' : b && !bp && cp ? 'IMPROVED' : '';
+  if (bp) bPass++; if (cp) cPass++; bSec += b?.seconds ?? 0; cSec += r.seconds;
   out.push(`${r.id.padEnd(5)}${r.difficulty.padEnd(8)}${res(b).padEnd(16)}${res(r).padEnd(16)}${String(b?.seconds ?? '-').padStart(6)}${String(r.seconds).padStart(8)}${String(b ? r.seconds - b.seconds : '-').padStart(8)}  ${note}`);
 }
 const denom = base.length || run.length;
 out.push(`TOTAL base ${bPass}/${denom} ${Math.round(bSec / 60)} min | contained ${cPass}/${denom} ${Math.round(cSec / 60)} min`);
 out.push('');
 out.push('== FAILURE DETAIL (contained)');
-for (const r of run.filter((x) => !x.pass && x.detail)) out.push(`${r.id}: ${r.detail.replace(/\r?\n/g, ' ').slice(0, 300)}`);
+for (const r of run.filter((x) => !countsAsPass(x) && x.detail)) out.push(`${r.id}: ${r.detail.replace(/\r?\n/g, ' ').slice(0, 300)}`);
 out.push('');
 
 // ---------- model meter ----------

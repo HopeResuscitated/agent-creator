@@ -38,6 +38,31 @@ export function decideTimedOut(note: WrapperNote | null, seconds: number, timeou
   return { timedOut: false, source: 'n/a' };
 }
 
+/**
+ * Termination evidence. tools/run-in-job.ps1 writes its "agent exit=... timedOut=..." line on every path that exits 0
+ * (and on exit 3/5). So a jcode run whose wrapper exited 0 (env CLEAN or ENV_CONTAMINATED after the dependency check)
+ * but whose transcript has no such line has lost the evidence of how the agent ended: it may have timed out. It is
+ * classified AGENT_STATUS_UNKNOWN (not graded), never graded on the elapsed-time guess. Other env values pass through.
+ */
+export function requireTerminationEvidence(env: { env: string; envDetail: string }, note: WrapperNote | null, isJcode: boolean): { env: string; envDetail: string } {
+  // A note whose exit is not a number or "timeout" (unknown / not-started) does not show how the agent ended either;
+  // the real wrapper never exits 0 with one, so this only fires on inconsistent evidence. Fail closed.
+  const ended = !!note && (note.timedOut || /^-?\d+$/.test(note.agentExit));
+  if (!isJcode || ended || (env.env !== 'CLEAN' && env.env !== 'ENV_CONTAMINATED')) return env;
+  return { env: 'AGENT_STATUS_UNKNOWN', envDetail: `wrapper exited 0 but no valid "agent exit=<code|timeout> timedOut=..." line (termination evidence missing; was ${env.env}${env.envDetail ? `: ${env.envDetail}` : ''})` };
+}
+
+/**
+ * Does a results.json entry count as a PASS? New entries carry `outcome`. Entries written before outcome.ts (326ba4e)
+ * may say pass=true with timedOut=true; those are TIMEOUT as documented, so they never count as PASS here. Read-only:
+ * the recorded files are not rewritten.
+ */
+export function countsAsPass(r: { outcome?: string; pass?: boolean; timedOut?: boolean; env?: string } | undefined | null): boolean {
+  if (!r) return false;
+  if (r.outcome) return r.outcome === 'PASS';
+  return r.pass === true && r.timedOut !== true && (!r.env || r.env === 'CLEAN');
+}
+
 const NOT_GRADED = new Set(['SETUP_FAILED', 'UNSAFE_PROCESS_TREE', 'AGENT_STATUS_UNKNOWN', 'ENV_RESTORE_FAILED']);
 /** True when the env status means the grader must not run at all. */
 export function skipGrading(env: string): boolean { return NOT_GRADED.has(env); }

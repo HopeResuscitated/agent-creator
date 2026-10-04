@@ -39,7 +39,7 @@ import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import { checks } from './checks.ts';
-import { parseWrapperNote, decideTimedOut, classify, skipGrading, resultLabel } from './outcome.ts';
+import { parseWrapperNote, decideTimedOut, classify, skipGrading, resultLabel, requireTerminationEvidence } from './outcome.ts';
 
 type Task = { id: string; title: string; difficulty: string; category: string; timeoutMin: number; prompt: string; setup?: { from: string; to: string }[] };
 
@@ -675,15 +675,15 @@ for (const task of selected) {
   // process tree was not proven dead, a survivor could still change the sandbox: skip the check and grading.
   // SETUP_FAILED: the agent never started, so the task is not graded and is excluded from the score.
   // AGENT_STATUS_UNKNOWN: the agent ran but its result was lost after launch: not graded, counted as a FAIL.
-  const envStatus: { env: string; envDetail: string } = run.contained ? checkAndRestoreEnv(ws)
+  const note = parseWrapperNote(run.transcript);
+  const envStatus: { env: string; envDetail: string } = requireTerminationEvidence(run.contained ? checkAndRestoreEnv(ws)
     : run.setupFailed ? { env: 'SETUP_FAILED', envDetail: run.containDetail }
       : run.statusUnknown ? { env: 'AGENT_STATUS_UNKNOWN', envDetail: run.containDetail }
-      : { env: 'UNSAFE_PROCESS_TREE', envDetail: run.containDetail };
+      : { env: 'UNSAFE_PROCESS_TREE', envDetail: run.containDetail }, note, agent === 'jcode');
   const g = skipGrading(envStatus.env) ? { pass: false, detail: `not graded: ${envStatus.envDetail}` } : await grade(task, ws);
   // Final class (evals/outcome.ts): a contaminated environment or a run that hit its time limit is never a PASS;
   // the grader's verdict is kept alongside as graderPass. The wrapper's own "agent exit=... timedOut=..." line is
   // the authority on timeouts (the elapsed-time guess is only a fallback when that line is missing).
-  const note = parseWrapperNote(run.transcript);
   const to = decideTimedOut(note, run.seconds, task.timeoutMin, agent === 'jcode');
   const { outcome, pass } = classify({ env: envStatus.env, graderPass: g.pass, timedOut: to.timedOut });
   const diff = spawnSync('git diff --stat HEAD', { cwd: ws, shell: true, encoding: 'utf8' }).stdout.trim().split('\n').pop() ?? '';
