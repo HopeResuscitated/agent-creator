@@ -1,7 +1,9 @@
 # AGENTS.md — agent creator (local jcode agent)
 
-Backend: LM Studio, Omnicoder 9B, local. Output tokens are the bottleneck
-(~10-30 tok/s). Keep this file short: it is re-read on every turn.
+Backend: local Ollama 0.34.4, model hermes-local-32k (Qwen3-Coder 30B-A3B
+Instruct, Q4_K_M, 32k context), CPU-only. Output tokens are the bottleneck
+(~3-5 tok/s on long prompts; the first token can take minutes). Keep this file
+short: it is re-read on every turn.
 
 ## SPEED RULES
 - Prefer patch/edit over full-file rewrites. Never regenerate a file to
