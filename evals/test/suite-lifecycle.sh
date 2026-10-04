@@ -11,7 +11,7 @@ set -u
 S=${1:?scratch dir}; REFUSED=${2:?refused jcode.exe}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); SUITE=$HERE/../bench/suite.sh
 source "$HERE/../bench/node.sh" || exit 3
-rm -rf "$S"; mkdir -p "$S"; FAILS=0
+source "$HERE/scratch.sh"; scratch_dir "$S" || exit 2; FAILS=0
 ok() { echo "PASS $1 | $2"; }
 bad() { echo "FAIL $1 | $2"; FAILS=$((FAILS + 1)); }
 # processes this suite starts and must not leave behind: meter.mjs (node), watch.ps1 / keepawake.ps1 (powershell)
@@ -25,6 +25,9 @@ listening() { powershell.exe -NoProfile -Command "@(Get-NetTCPConnection -LocalA
 mkdir -p "$S/keep"; touch "$S/keep/precious"; LF=0
 for l in "../keep" "a/../../keep" "" ".." "-x"; do bash "$SUITE" --out "$S/o" "$l" contain --only T01 > /dev/null 2>&1; [ $? = 2 ] || LF=1; done
 if [ $LF = 0 ] && [ -e "$S/keep/precious" ]; then ok labels "5 unsafe labels -> exit 2, sibling dir intact"; else bad labels "an unsafe label was not refused"; fi
+# 0b. meter addresses are interpolated into PowerShell: anything but 127.x.x.x:<port> is refused before any process starts
+MF=0; for v in "127.0.0.2:11439; Remove-Item x" "0.0.0.0:11439" "127.0.0.2" ":1"; do METER_LISTEN=$v bash "$SUITE" --out "$S/o" M contain --only T01 > /dev/null 2>&1; [ $? = 2 ] || MF=1; METER_UPSTREAM=$v bash "$SUITE" --out "$S/o" M contain --only T01 > /dev/null 2>&1; [ $? = 2 ] || MF=1; done
+if [ $MF = 0 ] && [ ! -e "$S/o/ev-M" ]; then ok meter-addr "8 malformed METER_LISTEN/METER_UPSTREAM values -> exit 2, nothing created"; else bad meter-addr "a malformed meter address was not refused"; fi
 
 # 1. refused run
 JCODE_BIN=$REFUSED bash "$SUITE" --out "$S/refused" R contain --only T01 > "$S/refused.log" 2>&1; rc=$?

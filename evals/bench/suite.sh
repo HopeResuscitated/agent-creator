@@ -30,6 +30,10 @@ mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); WOUT=$(cygpath -m "$OUT")
 EV=$OUT/ev-$LABEL; WEV=$WOUT/ev-$LABEL
 MODEL=${MODEL:-hermes-local-32k}
 METER_LISTEN=${METER_LISTEN:-127.0.0.2:11439}; METER_UPSTREAM=${METER_UPSTREAM:-127.0.0.1:11434}
+# both are interpolated into PowerShell/URLs below: loopback IPv4:port only (no other characters reach a command line)
+for hp in "$METER_LISTEN" "$METER_UPSTREAM"; do
+  [[ "$hp" =~ ^127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:[0-9]{1,5}$ ]] || { echo "METER_LISTEN/METER_UPSTREAM must be 127.x.x.x:<port> (got '$hp')" >&2; exit 2; }
+done
 MHOST=${METER_LISTEN%:*}; MPORT=${METER_LISTEN##*:}
 # A meter (or anything else) already listening on METER_LISTEN would be adopted below as "the meter" and would log
 # this run's traffic into another run's evidence: refuse instead.

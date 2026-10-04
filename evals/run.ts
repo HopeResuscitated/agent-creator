@@ -625,7 +625,7 @@ const runIdBase = `${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
 // first run's results.json/transcripts and prepare() would delete its sandboxes. Never reuse an id: -r2, -r3, ...
 let runId = runIdBase;
 for (let n = 2; fs.existsSync(path.join(EVALS, 'results', runId)) || fs.existsSync(path.join(os.tmpdir(), 'agent-evals', runId)); n++) runId = `${runIdBase}-r${n}`;
-const root = path.join(os.tmpdir(), 'agent-evals', runId);
+let root = path.join(os.tmpdir(), 'agent-evals', runId);
 /**
  * Agent-binary gate (PLAN A2). jcode is the system under test; a different build (e.g. the pre-A2 binary
  * without the incomplete-stream retry) measures something else. For jcode runs the binary's sha256 must
@@ -648,8 +648,16 @@ if (agent === 'jcode') {
   }
 }
 
+// Claim the id atomically: the existence check above runs before the pin gates (seconds earlier), so a second run.ts
+// started meanwhile could pick the same id. mkdir without `recursive` fails with EEXIST if another run took it.
+fs.mkdirSync(path.join(EVALS, 'results'), { recursive: true });
+for (let n = 2; ; n++) {
+  try { if (fs.existsSync(root)) throw Object.assign(new Error('sandbox root exists'), { code: 'EEXIST' }); fs.mkdirSync(path.join(EVALS, 'results', runId)); break; } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    runId = `${runIdBase}-r${n}`; root = path.join(os.tmpdir(), 'agent-evals', runId);
+  }
+}
 const outDir = path.join(EVALS, 'results', runId);
-fs.mkdirSync(outDir, { recursive: true });
 // Stage node + the relay script once per run (never per task): the contained agent must be able to run
 // node, and its own install directory has no AppContainer ACE.
 const toolsStage = fsContain || controlEquivalent ? stageTools(root) : { dir: '', detail: '' };

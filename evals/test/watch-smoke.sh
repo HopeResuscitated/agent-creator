@@ -10,7 +10,7 @@
 set -u
 S=${1:?scratch dir}; HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$HERE/../bench/node.sh" || exit 3
-rm -rf "$S"; mkdir -p "$S/outside"; WS=$(cygpath -m "$S")
+source "$HERE/scratch.sh"; scratch_dir "$S" || exit 2; mkdir -p "$S/outside"; WS=$(cygpath -m "$S")
 cp "$NODE_BIN" "$S/jcode.exe"
 LAN=$("$NODE_BIN" -e "const n=require('os').networkInterfaces();for(const k in n)for(const a of n[k])if(a.family==='IPv4'&&!a.internal){console.log(a.address);process.exit(0)}")
 P=$(( 30000 + RANDOM % 20000 ))

@@ -85,6 +85,10 @@ test('run.ts decides pass only through outcome.ts', () => {
 test('run.ts never reuses a run id (same-minute runs would overwrite results and delete sandboxes)', () => {
   const src = fs.readFileSync(path.join(HERE, '..', 'run.ts'), 'utf8');
   assert.match(src, /for \(let n = 2; fs\.existsSync\(path\.join\(EVALS, 'results', runId\)\) \|\| fs\.existsSync\(path\.join\(os\.tmpdir\(\), 'agent-evals', runId\)\); n\+\+\) runId = `\$\{runIdBase\}-r\$\{n\}`;/);
-  assert.ok(src.indexOf('let runId = runIdBase;') < src.indexOf("const root = path.join(os.tmpdir(), 'agent-evals', runId);"));
-  assert.ok(src.indexOf("const root = path.join(os.tmpdir(), 'agent-evals', runId);") < src.indexOf("const outDir = path.join(EVALS, 'results', runId);"));
+  assert.ok(src.indexOf('let runId = runIdBase;') < src.indexOf("let root = path.join(os.tmpdir(), 'agent-evals', runId);"));
+  assert.ok(src.indexOf("let root = path.join(os.tmpdir(), 'agent-evals', runId);") < src.indexOf("const outDir = path.join(EVALS, 'results', runId);"));
+  // atomic claim right before outDir: non-recursive mkdir (EEXIST -> next suffix), sandbox root checked too
+  const claim = src.indexOf("fs.mkdirSync(path.join(EVALS, 'results', runId)); break;");
+  assert.ok(claim > 0 && claim < src.indexOf("const outDir = path.join(EVALS, 'results', runId);"));
+  assert.ok(!/fs\.mkdirSync\(outDir, \{ recursive: true \}\)/.test(src));
 });
