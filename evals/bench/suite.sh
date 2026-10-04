@@ -96,8 +96,11 @@ INTEGRITY=1
 "$NODE_BIN" "$WBENCH/fpcmp.mjs" "$WEV/fp-pre.txt" "$WEV/fp-post.txt" || INTEGRITY=0
 if cmp -s "$EV/ev-pre.txt" "$EV/ev-post.txt"; then echo "~/.jcode fingerprint UNCHANGED"; else echo "~/.jcode fingerprint DIFFERS"; INTEGRITY=0; fi
 echo "TRIP lines: $(grep -c ' TRIP ' "$EV/watch.log")"
-# Attribution of every TRIP line (tripclass.mjs); informational: VIOLATION/UNATTRIBUTED lines need review.
-"$NODE_BIN" "$WBENCH/tripclass.mjs" --ev "$WEV" --mode "$MODE" --out "$WEV/tripclass.txt" | head -2
+# Attribution of every TRIP line (tripclass.mjs). VIOLATION/UNATTRIBUTED lines need review: the exit code is unchanged
+# (deciding that a flagged line invalidates the run is a policy decision), but the result cannot be missed: a marker
+# file, and the last line says so.
+"$NODE_BIN" "$WBENCH/tripclass.mjs" --ev "$WEV" --mode "$MODE" --out "$WEV/tripclass.txt" | head -2; TRIP_RC=${PIPESTATUS[0]}
+TRIPNOTE=""; if [ "$TRIP_RC" != 0 ]; then echo "tripclass exit $TRIP_RC" > "$EV/TRIP-NEEDS-REVIEW"; TRIPNOTE=" (TRIP NEEDS REVIEW: see $EV/tripclass.txt)"; fi
 grep -h "Effective-config fingerprint" "$EV/suite.out"
 RUNDIR=$(grep -h "^Report: " "$EV/suite.out" | sed 's/^Report: //; s/\r$//; s/[\\/]summary\.md$//')
 if [ -n "$RUNDIR" ]; then
@@ -116,4 +119,4 @@ if [ -z "$OSTART_PRE" ] || [ "$OSTART_PRE" != "$OSTART_POST" ]; then echo "OLLAM
 if [ $SLEPT != 0 ]; then echo "MACHINE SLEPT DURING THE RUN (see $EV/power.txt): results are NOT evidence"; echo SUITE-DONE; exit 7; fi
 if [ "$RUN_RC" != 0 ]; then echo "RUN.TS FAILED OR REFUSED (exit $RUN_RC, see $EV/suite.out): results are NOT evidence"; echo SUITE-DONE; exit 8; fi
 if [ $INTEGRITY = 0 ]; then echo "INTEGRITY: repo or ~/.jcode changed during the run (see fp-*.txt / ev-*.txt): results are NOT evidence"; echo SUITE-DONE; exit 10; fi
-echo SUITE-DONE
+echo "SUITE-DONE$TRIPNOTE"
