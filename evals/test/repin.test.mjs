@@ -84,3 +84,11 @@ test('cpreflight runs the offline suite with a glob (node 26 treats a directory 
   const src = fs.readFileSync(path.join(EVALS, 'bench', 'cpreflight.mjs'), 'utf8');
   assert.match(src, /\['--test', 'evals\/test\/\*\.test\.mjs'\]/);
 });
+test('modelfileDiff: a different FROM blob only with a declared quant switch, parameters still identical', () => {
+  const cpu = 'FROM C:\b\sha256-1194192c\nPARAMETER num_ctx 32768\nPARAMETER num_gpu 0\nPARAMETER temperature 0.15\n';
+  const q8 = 'FROM C:\b\sha256-q8blob\nPARAMETER num_ctx 32768\nPARAMETER temperature 0.15\n';
+  assert.equal(modelfileDiff(cpu, q8).ok, false);
+  assert.equal(modelfileDiff(cpu, q8, { allowFrom: true }).ok, true);
+  assert.equal(modelfileDiff(cpu, q8.replace('0.15', '0.3'), { allowFrom: true }).ok, false);
+  assert.equal(modelfileDiff(cpu, q8.replace(/^FROM .*\n/, ''), { allowFrom: true }).ok, false);
+});

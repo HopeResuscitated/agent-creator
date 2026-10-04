@@ -50,13 +50,14 @@ export function editPins(text, { jcodeSha, digest, ollamaVersion }) {
   if (ollamaVersion) once(/("ollama_version":\s*")[^"]+(")/, `$1${ollamaVersion}$2`, 'ollama_version');
   return t;
 }
-/** Stage 3 check (pure): the GPU modelfile must equal the CPU one minus `PARAMETER num_gpu 0`. */
-export function modelfileDiff(cpu, gpu) {
+/** Stage 3 check (pure): the GPU modelfile must equal the CPU one minus `PARAMETER num_gpu 0`. With allowFrom (a different
+ *  quant declared via --quant), the FROM blob may differ; every PARAMETER/TEMPLATE line must still be identical. */
+export function modelfileDiff(cpu, gpu, { allowFrom = false } = {}) {
   const norm = (s) => s.replace(/\r\n/g, '\n').split('\n').filter((l) => !/^#/.test(l) && l.trim() !== '').map((l) => l.trimEnd());
   const a = norm(cpu).filter((l) => !/^FROM /.test(l)), b = norm(gpu).filter((l) => !/^FROM /.test(l));
   const removed = a.filter((l) => !b.includes(l)), added = b.filter((l) => !a.includes(l));
   const fromA = norm(cpu).find((l) => /^FROM /.test(l)), fromB = norm(gpu).find((l) => /^FROM /.test(l));
-  return { removed, added, sameFrom: fromA === fromB, ok: added.length === 0 && removed.length === 1 && /^PARAMETER num_gpu 0$/.test(removed[0]) && fromA === fromB };
+  return { removed, added, sameFrom: fromA === fromB, ok: added.length === 0 && removed.length === 1 && /^PARAMETER num_gpu 0$/.test(removed[0]) && (fromA === fromB || (allowFrom && !!fromB)) };
 }
 
 const sha256 = (f) => { try { return crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'); } catch { return null; } };
@@ -85,12 +86,13 @@ const STAGE_IMPL = {
     const v = (await api('GET', '/api/version'))?.version; const want = opts.ollamaVersion ?? env.model_server.ollama_version;
     return { checks: [{ name: 'ollama-version', ok: v === want, detail: `running ${v ?? 'unreachable'}, will pin ${want}${v && v !== env.model_server.ollama_version && !opts.ollamaVersion ? ' (auto-update ran? reinstall or pass --ollama-version deliberately)' : ''}` }], data: { ollama_version: want } };
   },
-  async '3'({ R, dry }) {
+  async '3'({ R, dry, opts }) {
+    const otherQuant = !!opts.quant && opts.quant !== 'Q4_K_M';   // a deliberate quant switch (REPIN step 12): FROM may differ
     const tags = await api('GET', '/api/tags'); const find = (n) => tags?.models?.find((m) => m.name === `${n}:latest` || m.name === n);
     const backup = find(DEFAULTS.cpuBackup), cur = find('hermes-local-32k');
     const showB = backup ? await api('POST', '/api/show', JSON.stringify({ model: DEFAULTS.cpuBackup })) : null;
     const showC = cur ? await api('POST', '/api/show', JSON.stringify({ model: 'hermes-local-32k' })) : null;
-    const d = showB && showC ? modelfileDiff(showB.modelfile ?? '', showC.modelfile ?? '') : null;
+    const d = showB && showC ? modelfileDiff(showB.modelfile ?? '', showC.modelfile ?? '', { allowFrom: otherQuant }) : null;
     if (!dry && showB && showC) { fs.writeFileSync(path.join(R, 'Modelfile.cpu'), showB.modelfile ?? ''); fs.writeFileSync(path.join(R, 'Modelfile.new'), showC.modelfile ?? ''); }
     if (cur) await api('POST', '/api/generate', JSON.stringify({ model: 'hermes-local-32k', prompt: 'ok', stream: false, options: { num_predict: 1 } }));
     const p = (await api('GET', '/api/ps'))?.models?.find((m) => m.name === 'hermes-local-32k:latest');
@@ -98,6 +100,7 @@ const STAGE_IMPL = {
       { name: 'cpu-model-kept', ok: backup?.digest === DEFAULTS.cpuDigest, detail: backup ? `${DEFAULTS.cpuBackup} digest ${backup.digest.slice(0, 16)}` : `missing: ollama cp hermes-local-32k ${DEFAULTS.cpuBackup}` },
       { name: 'new-digest', ok: !!cur && cur.digest !== DEFAULTS.cpuDigest, detail: cur ? `hermes-local-32k ${cur.digest.slice(0, 16)}${cur.digest === DEFAULTS.cpuDigest ? ' (still the CPU model)' : ''}` : 'hermes-local-32k missing' },
       { name: 'modelfile-only-num_gpu-removed', ok: !!d?.ok, detail: d ? `removed ${JSON.stringify(d.removed)} added ${JSON.stringify(d.added)} sameFrom=${d.sameFrom}` : 'needs both models (manual: ollama show --modelfile, delete PARAMETER num_gpu 0, ollama create)' },
+      ...(otherQuant ? [{ name: 'quant-is-declared', ok: showC?.details?.quantization_level === opts.quant, detail: `hermes-local-32k is ${showC?.details?.quantization_level ?? '?'}, --quant ${opts.quant}` }] : []),
       { name: 'placement-100-gpu', ok: !!p && p.size > 0 && p.size_vram >= p.size, detail: p ? `size_vram ${p.size_vram} of ${p.size}` : 'not loaded' },
     ], data: { model_digest: cur?.digest ?? null } };
   },
