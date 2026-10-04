@@ -81,3 +81,10 @@ test('run.ts decides pass only through outcome.ts', () => {
   // the score counts r.pass only
   assert.match(src, /const passed = graded\.filter\(\(r\) => r\.pass\)\.length;/);
 });
+
+test('run.ts never reuses a run id (same-minute runs would overwrite results and delete sandboxes)', () => {
+  const src = fs.readFileSync(path.join(HERE, '..', 'run.ts'), 'utf8');
+  assert.match(src, /for \(let n = 2; fs\.existsSync\(path\.join\(EVALS, 'results', runId\)\) \|\| fs\.existsSync\(path\.join\(os\.tmpdir\(\), 'agent-evals', runId\)\); n\+\+\) runId = `\$\{runIdBase\}-r\$\{n\}`;/);
+  assert.ok(src.indexOf('let runId = runIdBase;') < src.indexOf("const root = path.join(os.tmpdir(), 'agent-evals', runId);"));
+  assert.ok(src.indexOf("const root = path.join(os.tmpdir(), 'agent-evals', runId);") < src.indexOf("const outDir = path.join(EVALS, 'results', runId);"));
+});

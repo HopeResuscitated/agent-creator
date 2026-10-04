@@ -619,7 +619,12 @@ if (flag('grade')) {
 const onlyFlag = flag('only');
 const only = onlyFlag ? new Set(onlyFlag.split(',')) : undefined;
 const selected = tasks.filter((t) => !only || only.has(t.id));
-const runId = `${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}_${agent === 'none' ? 'baseline' : agent === 'reference' ? 'reference' : `${provider}-${model}`}`.replace(/[^\w.-]/g, '_');
+const runIdBase = `${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}_${agent === 'none' ? 'baseline' : agent === 'reference' ? 'reference' : `${provider}-${model}`}`.replace(/[^\w.-]/g, '_');
+// The id has minute resolution and no mode: two runs started in the same minute (contained then control, or
+// back-to-back T01 runs) would share evals/results/<id> and the sandbox root, so the second run would overwrite the
+// first run's results.json/transcripts and prepare() would delete its sandboxes. Never reuse an id: -r2, -r3, ...
+let runId = runIdBase;
+for (let n = 2; fs.existsSync(path.join(EVALS, 'results', runId)) || fs.existsSync(path.join(os.tmpdir(), 'agent-evals', runId)); n++) runId = `${runIdBase}-r${n}`;
 const root = path.join(os.tmpdir(), 'agent-evals', runId);
 /**
  * Agent-binary gate (PLAN A2). jcode is the system under test; a different build (e.g. the pre-A2 binary
