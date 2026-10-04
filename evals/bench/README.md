@@ -43,6 +43,27 @@ Probes and byte tests
   relaytest/harness.ps1 -Repo <repo> [-Out d]  broker/relay byte test (12 cases + port range)
   node relaytest/contained-e2e.mjs [repo]     contained end-to-end byte test (9 cases + busy-port setup failure)
 
+Gates and re-pin (see evals/REPIN.md for the full sequence)
+  JCODE_BIN=<pinned> gates.sh --out <dir> [--refuse <jcode.exe>]... [--bare-node <node.exe>]
+                                  every pre-run gate, machine-checked: pins match, non-pinned node / jcode and an
+                                  unreachable model server refused (exit 2), contained-child 10/10, secprobe 20/20,
+                                  relay bytes + after-Stop + port range, contained e2e 9/9 + busy port, meter
+                                  kill-abort. One PASS/FAIL line each, `GATES PASS` + exit 0 only if all pass.
+                                  Exit 9 (does not start) while any jcode.exe runs or a client is connected to Ollama.
+  meterabort.mjs [port] [model]   real-Ollama check that meter.mjs aborts its upstream request when the client goes
+                                  away (METER_JS=<file> to test another meter build). METERABORT PASS/FAIL, exit 0/1.
+  t01x4.ps1 -JcodeBin <bin> -Out <dir> [-Previous <fp>]   T01 from PowerShell and git-bash, contained and control:
+                                  the 4 run fingerprints must be identical (T01X4 PASS). -Previous only reports
+                                  EQUAL/DIFFERENT against an older baseline; it is never the new baseline.
+  quanttrial.mjs --model <m> --requests <dir>... --out <f.jsonl> [--reps 2] [--limit N]
+                                  replays captured agent requests (meter raw/*.req.json, de-duplicated) against one
+                                  Ollama model; classes complete / eof_no_finish / http_500_parse / tool_xml_in_text /
+                                  bad_tool_args; malformed rate + Wilson 95%, median first token, decode tok/s.
+  editstring.mjs <jcode.exe> <label> --expect fixed|unfixed   A3 check with a fake model server: `edits` as array /
+                                  strict-JSON string / raw-newline string / garbage. EDITSTRING PASS/FAIL.
+  attrmon.ps1 -Log <f> -StopFile <f> [-Interval 20] [-Once]   attribution monitor for exclusive windows: every
+                                  jcode.exe and Ollama client classified; EXTERNAL-ACTIVITY lines = contaminated run.
+
 Rebuilt from cycle-6/7 notes (originals pruned with scratch): watch.ps1, fp.mjs, fpcmp.mjs, evfp.mjs, analyze.mjs,
 classify.mjs. analyze/classify reproduce the archived cycle-6 C1, C2-R output byte-for-byte; for D1-R/D2-R
 (control runs whose watch.log has >25 TRIP lines) analyze additionally prints the TRIP total and the watch-stop line.
