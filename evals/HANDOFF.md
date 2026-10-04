@@ -6,7 +6,7 @@ done; C not started). Audit of the harness: `evals/AUDIT.md`. Full plan and stat
 regression, pre-C tooling checks).
 
 ## Where we are
-Containment is proven (all invariants hold; decision rule passed). Last harness-code commit `9c9bf85` (2026-10-04
+Containment is proven (all invariants hold; decision rule passed). Last harness-code commit `59ccb11` (2026-10-04
 hardening and second audit: classification, failure propagation, monitoring, re-pin automation; see "Post-checkpoint
 hardening" and "Second pre-hardware audit"). No
 evidence was produced by the new code: every authoritative result predates it and is unchanged. All work is local (branch `cierra-wip-2026-09-29`); nothing has been pushed.
@@ -344,7 +344,7 @@ Accept rule: no T05 failure ends on an unrecovered incomplete stream; retries bo
 | Final regression (2026-10-03 13:17) | PASS (see "Final regression") |
 | gates.sh (2026-10-03 evening) | 15/15 PASS |
 | C re-baseline | NOT RUN, blocked on H |
-| Offline harness tests (2026-10-04) | `node --test "evals/test/*.test.mjs"` 158/158, `lint.sh` PASS, `suite-lifecycle.sh` 6/6, `watch-smoke.sh` PASS, `suite-midrun.sh` model-fail / meter-dies / trip-review PASS |
+| Offline harness tests (2026-10-04) | `node --test "evals/test/*.test.mjs"` 158/158, `lint.sh` PASS, `suite-lifecycle.sh` 6/6, `watch-smoke.sh` 11/11, `suite-midrun.sh` model-fail / meter-dies / trip-review PASS (final battery on `59ccb11`, AUDIT 21.9) |
 | A2 vs A3 offline (`a3offline.mjs`, 2026-10-04) | PASS (see A3) |
 
 ## Final regression (2026-10-03 13:17-13:22, HEAD 5d3e8fe, AC, no external activity)
@@ -417,6 +417,11 @@ no pin/baseline/grader/timeout/result change). Details: `evals/AUDIT.md` section
 4. Security review: run-id race, unvalidated METER_LISTEN/UPSTREAM in a PowerShell command, unguarded `rm -rf` of test
    scratch args (`eb4cb4f`); `taskkill /F` portability (`f933a4e`).
 5. A flagged TRIP was easy to miss (exit 0, mid-output line); now a marker file and the last line (`9c9bf85`).
+6. Closeout (`59ccb11`, tests only): the first real-process attempts failed for test-setup reasons (probe counted
+   itself; repo edited during a run -> exit 10; `taskkill //F` never killed the meter). Fixed, then five weak assertions
+   tightened so a test cannot pass when its fault was not injected. Final battery on clean `59ccb11`: lifecycle 6/6,
+   watch-smoke 11/11, midrun model-fail / meter-dies (exit 6, 125 s after the kill) / trip-review PASS, no survivors.
+   Every attempt, failed ones included: `evals/AUDIT.md` 21.9.
 New: `evals/RUNBOOK-POST-HARDWARE.md` (exact post-hardware sequence), `evals/perf/HARDWARE-REPORT.md` + `hwreport.mjs`,
 `a3stress.mjs` (A3 candidate evidence: PASS), `test/suite-midrun.sh` (real contained suite: model failure -> FAIL /
 exit 0; meter killed -> exit 6 in ~2 min; stray Ollama client -> TRIP-NEEDS-REVIEW; no surviving process).

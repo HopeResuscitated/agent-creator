@@ -275,3 +275,18 @@ cover refusal, busy port, Ollama restart, Ctrl+C, labels. Every case ends with n
 wrapper/run.ts/jcode process. Run ids: 3 concurrent same-minute starts got 3 ids. Found while doing this: `taskkill
 //F` (usual git-bash escape) does not work in Hermes' shell and plain `/F` does not work in git-bash; lint now flags
 it (`f933a4e`).
+
+### 21.9 Real-process test attempts, including the failed ones (kept as audit history)
+All runs 2026-10-04 against `fakeupstream.mjs` (no inference); none is evidence, none changed a recorded result.
+| Attempt | Result | Cause | Correction |
+|---|---|---|---|
+| suite-midrun, first two starts | SKIP (exit 2) | the leftover-process probe counted its own PowerShell query (and bash wrappers) as a harness process | probe excludes itself and bash.exe (in `2cd9a04`) |
+| suite-midrun model-fail + meter-dies | FAIL (4 checks) | (a) model-fail: exit 10 because the repo was edited while it ran: the harness correctly declared the run not evidence; (b) meter-dies: `taskkill //F` silently did nothing in this shell, so the meter was never killed; the run "waited until the task timeout" because the upstream hung, not because of a meter death. The earlier note "the agent waits until the task timeout when the meter dies" was wrong and is withdrawn | (a) header: do not edit the repo during a run; (b) Stop-Process + meter-killed check, lint rule (`f933a4e`) |
+| suite-midrun meter-dies (after `f933a4e`) | PASS | meter killed 20:10:34 -> agent retries fail -> T01 FAIL -> suite exit 6 "METER DIED" 120 s after the kill | - |
+| TERM to suite.sh's bash only (manual probe) | exit 130 after 910 s, INTERRUPTED, no survivor | bash runs traps only after the foreground run.ts returns (T01 timeout 15 min); Ctrl+C signals the whole group | recorded (section 7 table), not changed |
+| batch: lifecycle 6/6, watch-smoke, model-fail, trip-review | PASS | - | - |
+| closeout review of `f933a4e` and siblings (`59ccb11`) | 5 weak assertions found | meter chosen by command line (could be another process); "no PASS" vacuous when results.json missing; no proof the fault was injected mid-run; trip-review accepted any UNATTRIBUTED line; 127.0.0.3 negative check without a positive control; label/address refusals accepted any exit 2 | meter = the single node.exe listening on the meter port; agent-reached-model, probe-sees-run, results-written, stray-client-is-the-TRIP, 127.0.0.3-present and refusal-message checks added |
+| final battery on `59ccb11` (tree clean before and after) | all PASS | lifecycle 6/6 (labels, meter-addr, refused, busy, restart, interrupt); watch-smoke 11/11; midrun model-fail 5/5, meter-dies 9/9 (exit 6, 125 s after the kill), trip-review 5/5 | - |
+After the final battery: no meter, watch, keepawake, wrapper, run.ts, broker, jcode or stand-in process; meter port and
+stand-in port free; results dirs created by the tests moved to the scratch dir (with the 5 run.ts race-test dirs from
+the security review); rows the tests appended to the untracked `evals/results/history.csv` were left. Nothing deleted.

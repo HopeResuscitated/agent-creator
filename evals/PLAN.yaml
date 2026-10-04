@@ -6,7 +6,7 @@ branch: cierra-wip-2026-09-29      # PUSH STATE UNRESOLVED: origin has this bran
                                    # session) although this file said "local only, never pushed". Local is ahead of
                                    # origin by the commits under harness_commits (15 at the 2026-10-03 pre-C docs commit).
                                    # Hermes has not pushed. jcode-evalpin has no upstream configured; also never pushed.
-head: 9c9bf85                      # last harness-code commit 2026-10-04 (second pre-hardware audit); see harness_commits
+head: 59ccb11                      # last harness-code commit 2026-10-04 (audit closeout: test-harness fixes only); see harness_commits
 updated: 2026-10-04
 
 pins:                              # the evaluation contract; run.ts refuses (exit 2) on any mismatch
@@ -68,6 +68,7 @@ harness_commits:                   # since 6ca495a (the last commit on origin)
   eb4cb4f: "security review: atomic run-id claim, METER_LISTEN/UPSTREAM validated, marker-guarded test scratch dirs"
   2cd9a04: "evals/test/suite-midrun.sh + fakeupstream.mjs (real contained suite, no inference)"
   f933a4e: "lint: taskkill /F in bash; tools/probe.sh fix; suite-midrun kills the meter with Stop-Process"
+  59ccb11: "lifecycle tests prove fault injection/refusals (meter by listening port, positive controls, no vacuous no-PASS); AUDIT 21.9"
   9c9bf85: "suite.sh: TRIP needing review -> ev-<label>/TRIP-NEEDS-REVIEW + last line (exit code policy unchanged)"
 jcode_commits:                     # C:/Users/cierra/jcode-evalpin, local only
   1fbb2e1b4: "XML tool-call recovery (previous pin)"
