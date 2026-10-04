@@ -173,6 +173,21 @@ value is pre-registered in PLAN.yaml before the first C run.
 **Model change needed on any GPU**: the pinned model has `PARAMETER num_gpu 0`, so it would keep running on CPU. The
 re-pin rebuilds it with that one line removed (same weights, same other parameters, new digest): `REPIN.md` step 3.
 
+**UNKNOWN UNTIL MEASURED ON THE NEW HARDWARE** (2026-10-04 dossier; every row is NOT MEASURED in
+`evals/perf/HARDWARE-REPORT.md`, which `evals/bench/hwreport.mjs` fills from the re-pin's stage-1 hwprofile and the
+first GPU perfreport):
+- whether Q4_K_M weights (~17.3 GiB) + the 32k q8_0 cache (~1.6 GiB) + GPU compute/output buffers fit entirely in the
+  new GPU's memory (`ollama ps` 100% GPU, `offloaded N/N layers`); the GPU compute buffer size is not known (240.1 MiB
+  is the CPU value)
+- the same for Q8_0 (~30 GiB is an estimate from the parameter count; no Q8_0 file has been downloaded)
+- GPU driver/runtime that Ollama 0.34.4 selects (CUDA / ROCm / Vulkan) and whether it sees the GPU at all
+- model load time, first-token latency at ~2.5k and ~11.5k-token prompts, decode tok/s, total request duration
+- malformed tool-call rate per quant (quant trial, 434 samples)
+- per-task duration, timeout rate and completion rate of T03/T08/T13/T14/T17 (the tasks whose CPU runs time out
+  while progressing); whether they finish inside the unchanged timeouts is exactly what C measures
+None of these has a threshold in the project; the only hard conditions are REPIN.md's (100% GPU, gates, T01x4,
+quant decision recorded).
+
 ## Coverage: what has not run on the current pin, and what it is needed for
 C's task list is T13, T14, T17, T04, T05, T03, T08, T01. D has no adopted definition beyond "after C (foundation
 complete -> infrastructure phase)". Every "proposed" entry below is a PROPOSAL, NOT APPROVED.

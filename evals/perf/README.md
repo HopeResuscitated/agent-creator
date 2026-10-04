@@ -7,6 +7,7 @@ current CPU baseline on the same definitions (`evals/bench/perfreport.mjs`).
 |---|---|---|
 | `cpu-baseline-hwprofile.json` | `evals/bench/hwprofile.ps1` on the current machine, 2026-10-04 (model loaded, idle): Ryzen AI 7 PRO 350, 31.2 GiB RAM, Radeon 860M iGPU (Vulkan visible to Ollama, unused: `num_gpu 0`), placement 100% CPU, llama-server buffers (weights 4,258.8 + 13,432.5 MiB repacked, KV 1,632 MiB q8_0, compute 240.1 MiB), runner private 19.29 GiB | measured, hardware-dependent |
 | `cpu-baseline-b6-contained.json`, `cpu-baseline-b6-control.json` | `perfreport.mjs` over the authoritative Phase B run b6 (A2 pin, AC; archive `cycle9/b6-phaseB-AC`; T05 + T08) | derived from authoritative evidence |
+| `HARDWARE-REPORT.md` | `hwreport.mjs`: CURRENT MEASURED BASELINE vs FUTURE HARDWARE MEASUREMENTS (GPU, VRAM, driver/runtime, Ollama visibility, layers, model/KV memory, RAM, CPU, storage, power, load time, first token, tok/s, request duration, timeout and completion rate); future column NOT MEASURED until the hardware change | generated from the files above |
 
 Compare a future run: `node evals/bench/perfreport.mjs --label gpu --ev <ev-dir> --results <results.json> --hwprofile <new profile> --out gpu.json`,
 then `node evals/bench/perfreport.mjs --compare evals/perf/cpu-baseline-b6-contained.json gpu.json`. Only compare runs with
