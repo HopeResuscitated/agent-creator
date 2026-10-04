@@ -397,16 +397,36 @@ phases:
                   with each other, never with agent-run meters. 2026-10-04 (3fa1a60): transport faults are stream_error (not
                   malformed); median ttfb uses warm 200 responses only; prefix-cache share and the model's start state are recorded"
     timeouts: "do not raise task timeouts to manufacture passes; decide them with the hardware, pre-registered for C"
+    quant_decision:          # REPIN.md step 12 / cpreflight repin-quant-consistent. CPU target: no second quant is feasible
+      quant: "Q4_K_M"
+      decided: "2026-10-04 (user: do not spend hours on an exploratory quant trial on this CPU; document the limitation)"
+      numbers: { malformed_rate: null, tok_s: null,
+                 note: "no trial run. The pinned model is Q4_K_M; Q8_0 (~30 GiB weights) plus KV at 32k does not fit the 31.2 GiB RAM of this machine, so there is no feasible second quant to compare. Not a measurement - a feasibility fact." }
   final_regression:
     status: "PASS - 2026-10-03 13:17-13:22, HEAD 5d3e8fe, jcode f76eff11, AC, 0 EXTERNAL-ACTIVITY (archive cycle9/final-regression)"
     results: ["node / model-server / old jcode / unpinned A3-candidate gates: exit 2", "contained-child 10/10", "secprobe 20/20",
               "relay 12/12, contained-e2e 9/9", "meter kill-abort ttfb 176 ms", "zero-task suites contained + control: exit 0, AC, no sleep, TRIP 0",
               "repo fingerprint + git status + ~/.jcode unchanged"]
   C_rebaseline:
-    status: "NOT STARTED - BLOCKED on H (A2 is complete; C must run on the final hardware + model, so running it now would be discarded)"
-    preflight: "evals/bench/cpreflight.mjs --repin <R> [--warm] -> READY FOR C or BLOCKED: <every reason>; fails closed. 2026-10-04: BLOCKED
-                (10 reasons on a clean tree: no re-pin record, A2 + CPU model pinned, H open, A3 candidate, C not pre-registered, no
-                recorded A3 binary, 100% CPU, no re-pin Ollama-settings record, auto-update ON)"
+    status: "NOT STARTED - BLOCKED on the remaining human steps (auto-update off; C pre-registration approved). The target environment is no longer a blocker: it is this machine (H_hardware DECIDED 2026-10-04)"
+    preflight: "evals/bench/cpreflight.mjs --repin <R> [--warm] -> READY FOR C or BLOCKED: <every reason>; fails closed. The GPU-only
+                prerequisites (GPU visible, VRAM, GPU layers, 100%-GPU placement) were removed 2026-10-04: they existed only for the
+                abandoned dedicated-GPU plan. Real prerequisites kept: jcode integrity, model integrity, Ollama version, containment,
+                security, reproducibility, power/sleep, clean evidence, task baseline, fingerprints, timeouts, contamination.
+                2026-10-04 after the CPU re-pin: BLOCKED on the human steps only (auto-update ON, preregistration not approved)"
+    preregistration_proposed:   # PROPOSED by Hermes 2026-10-04, NOT APPROVED. cpreflight keeps plan-c-preregistered BLOCKED
+                  # until the user moves/approves these values into preregistration (the same six items; this block adds no criterion).
+                  # The only two open decisions in it are marked PROPOSED-DECISION below.
+      tasks: [T13, T14, T17, T04, T05, T03, T08, T01]
+      reps: "3 per mode (contained, control), alternating"
+      order: "T01 first (warm-up + fingerprint), then the declared task order; contained and control paired per task"
+      timeouts: "UNCHANGED from the reference implementation: T01 900 s, T03/T08/T13/T14/T17 2700 s, T04/T05 1200 s (a CPU timeout stays a TIMEOUT)"
+      decision_rule: ["invariants hold every contained run", "fingerprints match within mode",
+                      "no contained-only failure with a containment-specific error",
+                      "contained-vs-control disagreement <= contained-vs-contained", "same-mode disagreement well below 41%"]
+      quant: "Q4_K_M"
+      PROPOSED-DECISION-1: "tasks that fail at SETUP (not evaluation) - re-run them within the rep, or record them as SETUP_FAILED and exclude? Proposal: re-run once, then record SETUP_FAILED (not a PASS, not counted as a model failure)"
+      PROPOSED-DECISION-2: "'well below 41%' is a free-text threshold - replace it with a number before the first run? Proposal: same-mode disagreement <= 25%"
     preregistration_format: "what cpreflight checks for, i.e. the items REPIN.md step 13 already requires, under
                 C_rebaseline.preregistration: { tasks, reps, order, timeouts, decision_rule, quant }. NOT filled in: pre-registration
                 is the user's step after the re-pin. Format only; it adds no criterion"
@@ -417,7 +437,7 @@ phases:
     decision_rule: ["invariants hold every contained run", "fingerprints match within mode",
                     "no contained-only failure with a containment-specific error",
                     "contained-vs-control disagreement <= contained-vs-contained", "same-mode disagreement well below 41%"]
-    preconditions_left: ["H decided", "REPIN.md steps 1-12 PASS (A3 pinned then)", "Ollama auto-update off (manual, user) or deliberately re-pinned",
+    preconditions_left: ["REMAINING HUMAN STEPS ONLY 2026-10-04: (1) Ollama auto-update OFF (tray icon > Settings) or a deliberate re-pin; (2) approve preregistration (decide PROPOSED-DECISION-1/2 above). H is decided (CPU target). REPIN.md steps 1-12: run 2026-10-04 on the CPU target", "H decided", "REPIN.md steps 1-12 PASS (A3 pinned then)", "Ollama auto-update off (manual, user) or deliberately re-pinned",
                          "C pre-registered in this file (tasks, reps, order, timeouts, decision rule) before the first C run", "machine on AC and exclusive"]
     preconditions_done: ["A3 adopted as candidate (2026-10-03; becomes authoritative only via REPIN.md)", "repo AGENTS.md corrected (HEAD); C keeps eval-baseline-v1, whose AGENTS.md still has the old text
                          (sandboxes come from the tag, not HEAD) - same text in every run, so no contained-vs-control bias"]
