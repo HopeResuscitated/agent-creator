@@ -87,7 +87,7 @@ Gates and re-pin (see evals/REPIN.md for the full sequence)
   attrmon.ps1 -Log <f> -StopFile <f> [-Interval 20] [-Once]   attribution monitor for exclusive windows: every
                                   jcode.exe and Ollama client classified; EXTERNAL-ACTIVITY lines = contaminated run.
 
-Offline tests: "$NODE_BIN" --test evals/test/  and  bash evals/test/lint.sh  (seconds; no model). Real-process tests:
+Offline tests: "$NODE_BIN" --test "evals/test/*.test.mjs"  and  bash evals/test/lint.sh  (seconds; no model). Real-process tests:
 bash evals/test/suite-lifecycle.sh <scratch> <a non-pinned jcode.exe>, bash evals/test/watch-smoke.sh <scratch>.
 
 Rebuilt from cycle-6/7 notes (originals pruned with scratch): watch.ps1, fp.mjs, fpcmp.mjs, evfp.mjs, analyze.mjs,

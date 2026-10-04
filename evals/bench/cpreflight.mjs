@@ -86,9 +86,9 @@ async function liveChecks({ env, record, warm }) {
 
 function testChecks(skip) {
   if (skip) return [{ name: 'tests', ok: false, why: '--skip-tests given: never READY without the offline suite' }];
-  const t = spawnSync(process.execPath, ['--test', 'evals/test/'], { cwd: REPO, encoding: 'utf8' });
+  const t = spawnSync(process.execPath, ['--test', 'evals/test/*.test.mjs'], { cwd: REPO, encoding: 'utf8' });
   const l = spawnSync('bash', ['evals/test/lint.sh'], { cwd: REPO, encoding: 'utf8' });
-  return [{ name: 'tests-offline', ok: t.status === 0, why: `node --test evals/test/ exit ${t.status}` }, { name: 'tests-lint', ok: l.status === 0, why: `lint.sh exit ${l.status}` }];
+  return [{ name: 'tests-offline', ok: t.status === 0, why: `node --test evals/test/*.test.mjs exit ${t.status}` }, { name: 'tests-lint', ok: l.status === 0, why: `lint.sh exit ${l.status}` }];
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

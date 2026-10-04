@@ -80,3 +80,7 @@ test('cpreflight: the current repository is BLOCKED (A2 pinned, H open, A3 candi
   for (const n of ['repin-record', 'pin-not-a2', 'pin-not-cpu-model', 'plan-h-decided', 'plan-a3-authoritative', 'plan-c-preregistered']) assert.ok(b.includes(n), n);
   assert.ok(!b.includes('plan-c-not-started'));
 });
+test('cpreflight runs the offline suite with a glob (node 26 treats a directory argument as one module)', () => {
+  const src = fs.readFileSync(path.join(EVALS, 'bench', 'cpreflight.mjs'), 'utf8');
+  assert.match(src, /\['--test', 'evals\/test\/\*\.test\.mjs'\]/);
+});
