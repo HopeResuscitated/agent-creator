@@ -104,7 +104,8 @@ allow_api_keys = false
 [telemetry]
 enabled = false
 `);
-  const env = { ...process.env, JCODE_HOME: home, JCODE_RUN_AUTO_POKE: '0' };
+  // telemetry opt-out as in run-in-job.ps1 (this tool runs uncontained, with network access)
+  const env = { ...process.env, JCODE_HOME: home, JCODE_RUN_AUTO_POKE: '0', JCODE_NO_TELEMETRY: '1', DO_NOT_TRACK: '1' };
   const t0 = Date.now();
   const r = await new Promise((resolve) => {
     const p = spawn(JC, ['-p', 'openai-compatible', '--provider-profile', 'evalbroker', '-m', 'hermes-local-32k', 'run', '--no-update', 'Do the task.'], { cwd: sb, env, stdio: ['ignore', 'pipe', 'pipe'] });
