@@ -1,0 +1,95 @@
+﻿{
+    "schema":  "hwprofile/1",
+    "taken":  "2026-10-04T12:52:23",
+    "host":  "DESKTOP-5HPBPV5",
+    "os":  {
+               "caption":  "Microsoft Windows 11 Pro",
+               "version":  "10.0.26200",
+               "build":  "26200"
+           },
+    "cpu":  [
+                {
+                    "name":  "AMD Ryzen AI 7 PRO 350 w/ Radeon 860M",
+                    "cores":  8,
+                    "threads":  16,
+                    "max_mhz":  2000
+                }
+            ],
+    "ram":  {
+                "total_gib":  31.18,
+                "free_gib":  5.82,
+                "commit_limit_gib":  58.21
+            },
+    "storage":  {
+                    "disks":  [
+                                  {
+                                      "name":  "PC_SN5000S SanDisk 512GB",
+                                      "media":  "SSD",
+                                      "bus":  "NVMe",
+                                      "size_gib":  476.94
+                                  }
+                              ],
+                    "c_free_gib":  199.84,
+                    "ollama_models_dir":  "C:\\Users\\cierra\\.ollama\\models"
+                },
+    "power":  {
+                  "source":  "AC",
+                  "battery_status":  2,
+                  "charge_pct":  100
+              },
+    "video_controllers":  [
+                              {
+                                  "name":  "AMD Radeon(TM) 860M Graphics",
+                                  "driver_version":  "32.0.22032.14003",
+                                  "driver_date":  "02/04/2026 18:00:00",
+                                  "adapter_ram_gib_wmi_unreliable":  0.5
+                              }
+                          ],
+    "nvidia":  {
+                   "value":  null,
+                   "reason":  "nvidia-smi not on PATH"
+               },
+    "rocm":  {
+                 "rocm_smi":  false,
+                 "hipinfo":  false,
+                 "hip_path":  null
+             },
+    "ollama":  {
+                   "version":  "0.34.4",
+                   "loaded":  [
+                                  {
+                                      "name":  "hermes-local-32k:latest",
+                                      "digest":  "1ef2c71ed2065896b080104a0499a15b320f9ea3f9049bacdadc42e71630b60f",
+                                      "quant":  "Q4_K_M",
+                                      "context_length":  32768,
+                                      "size_bytes":  20514361834,
+                                      "size_vram_bytes":  0,
+                                      "placement":  "100% CPU"
+                                  }
+                              ],
+                   "inference_compute":  [
+                                             "msg=\"inference compute\" id=0 filter_id=0 library=Vulkan compute=0.0 name=Vulkan0 description=\"AMD Radeon(TM) 860M Graphics\" libdirs=ollama,vulkan driver=0.0 pci_id=\"\" type=iGPU total=\"16.1 GiB\" available=\"15.3 GiB\""
+                                         ],
+                   "newest_load_buffers":  [
+                                               "load_tensors:          CPU model buffer size =  4258.84 MiB",
+                                               "load_tensors:   CPU_REPACK model buffer size = 13432.50 MiB",
+                                               "llama_context:        CPU  output buffer size =     0.58 MiB",
+                                               "llama_kv_cache:        CPU KV buffer size =  1632.00 MiB",
+                                               "llama_kv_cache: size = 1632.00 MiB ( 32768 cells,  48 layers,  1/1 seqs), K (q8_0):  816.00 MiB, V (q8_0):  816.00 MiB",
+                                               "sched_reserve:        CPU compute buffer size =   240.10 MiB"
+                                           ]
+               },
+    "runner_memory":  [
+                          {
+                              "pid":  34520,
+                              "name":  "llama-server",
+                              "private_gib":  19.29,
+                              "working_set_gib":  6.5,
+                              "peak_working_set_gib":  15.87
+                          }
+                      ],
+    "memory_compression":  {
+                               "working_set_gib":  5.85,
+                               "peak_working_set_gib":  14.17
+                           }
+}

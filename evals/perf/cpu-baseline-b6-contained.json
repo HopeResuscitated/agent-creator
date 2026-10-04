@@ -1,0 +1,54 @@
+{
+ "schema": "perfreport/1",
+ "label": "b6 contained (CPU, A2)",
+ "ev": [
+  "hermes-bench-archive/cycle9/b6-phaseB-AC/red/ev-B2-C"
+ ],
+ "windows": [
+  [
+   "2026-10-03T16:28:17.000Z",
+   "2026-10-03T17:09:29.000Z"
+  ]
+ ],
+ "hardware": {
+  "summary": "AMD Ryzen AI 7 PRO 350 w/ Radeon 860M; 31.18 GiB RAM; AMD Radeon(TM) 860M Graphics",
+  "placement": "100% CPU"
+ },
+ "model_load_s": [],
+ "requests": {
+  "requests": 19,
+  "requests_ok": 16,
+  "requests_non200": 1,
+  "requests_incomplete": 2,
+  "first_token_s": {
+   "p50": 53.04,
+   "p90": 176.08,
+   "max": 273.65
+  },
+  "request_s": {
+   "p50": 83.52,
+   "p90": 325.49,
+   "max": 533.74,
+   "sum": 1955.23
+  },
+  "decode_tok_s": 4.51,
+  "prefill_tok_s": 11.61,
+  "completion_tokens": 3922,
+  "context_tokens": {
+   "p50": 5088,
+   "max": 11451
+  }
+ },
+ "outcomes": {
+  "tasks": 2,
+  "PASS": 1,
+  "FAIL": 0,
+  "TIMEOUT": 1,
+  "OTHER": 0,
+  "timeout_rate": 0.5,
+  "completion_rate": 0.5,
+  "legacy": true
+ },
+ "samples": null,
+ "note": "Descriptive only. No thresholds; compare runs on the same task set, pins and timeouts."
+}
