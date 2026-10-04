@@ -39,6 +39,7 @@ import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import { checks } from './checks.ts';
+import { parseWrapperNote, decideTimedOut, classify, skipGrading, resultLabel } from './outcome.ts';
 
 type Task = { id: string; title: string; difficulty: string; category: string; timeoutMin: number; prompt: string; setup?: { from: string; to: string }[] };
 
@@ -673,14 +674,17 @@ for (const task of selected) {
     : run.setupFailed ? { env: 'SETUP_FAILED', envDetail: run.containDetail }
       : run.statusUnknown ? { env: 'AGENT_STATUS_UNKNOWN', envDetail: run.containDetail }
       : { env: 'UNSAFE_PROCESS_TREE', envDetail: run.containDetail };
-  const g = envStatus.env === 'ENV_RESTORE_FAILED' || envStatus.env === 'UNSAFE_PROCESS_TREE' || envStatus.env === 'SETUP_FAILED' || envStatus.env === 'AGENT_STATUS_UNKNOWN' ? { pass: false, detail: `not graded: ${envStatus.envDetail}` } : await grade(task, ws);
-  // A contaminated environment is never counted as a PASS; the grader's verdict (graded on
-  // the restored golden tree) is kept alongside as graderPass.
-  const pass = g.pass && envStatus.env === 'CLEAN';
+  const g = skipGrading(envStatus.env) ? { pass: false, detail: `not graded: ${envStatus.envDetail}` } : await grade(task, ws);
+  // Final class (evals/outcome.ts): a contaminated environment or a run that hit its time limit is never a PASS;
+  // the grader's verdict is kept alongside as graderPass. The wrapper's own "agent exit=... timedOut=..." line is
+  // the authority on timeouts (the elapsed-time guess is only a fallback when that line is missing).
+  const note = parseWrapperNote(run.transcript);
+  const to = decideTimedOut(note, run.seconds, task.timeoutMin, agent === 'jcode');
+  const { outcome, pass } = classify({ env: envStatus.env, graderPass: g.pass, timedOut: to.timedOut });
   const diff = spawnSync('git diff --stat HEAD', { cwd: ws, shell: true, encoding: 'utf8' }).stdout.trim().split('\n').pop() ?? '';
   fs.writeFileSync(path.join(outDir, `${task.id}.transcript.txt`), run.transcript);
-  results.push({ id: task.id, title: task.title, difficulty: task.difficulty, pass, detail: g.detail, seconds: run.seconds, timedOut: run.seconds >= task.timeoutMin * 60 - 5, diff, env: envStatus.env, envDetail: envStatus.envDetail, graderPass: g.pass, fingerprint: run.fingerprint && { ...run.fingerprint, model_server: modelServerId } });
-  console.log(`${envStatus.env === 'CLEAN' ? (pass ? 'PASS' : 'FAIL') : `${envStatus.env} (grader: ${g.pass ? 'PASS' : 'FAIL'})`} ${String(run.seconds).padStart(5)}s  ${pass ? '' : g.detail.slice(0, 110)}${envStatus.env === 'CLEAN' ? '' : `\n    ${envStatus.envDetail.slice(0, 300)}`}`);
+  results.push({ id: task.id, title: task.title, difficulty: task.difficulty, outcome, pass, detail: g.detail, seconds: run.seconds, timedOut: to.timedOut, timedOutSource: to.source, agentExit: note?.agentExit ?? (agent === 'jcode' ? 'no-wrapper-note' : String(run.exit)), diff, env: envStatus.env, envDetail: envStatus.envDetail, graderPass: g.pass, fingerprint: run.fingerprint && { ...run.fingerprint, model_server: modelServerId } });
+  console.log(`${resultLabel({ outcome, graderPass: g.pass })} ${String(run.seconds).padStart(5)}s  ${pass ? '' : g.detail.slice(0, 110)}${envStatus.env === 'CLEAN' ? '' : `\n    ${envStatus.envDetail.slice(0, 300)}`}`);
 }
 
 const graded = results.filter((r) => r.env !== 'SETUP_FAILED');
@@ -689,13 +693,15 @@ const passed = graded.filter((r) => r.pass).length;
 const byDiff = ['easy', 'medium', 'hard'].map((d) => { const x = graded.filter((r) => r.difficulty === d); return `${d} ${x.filter((r) => r.pass).length}/${x.length}`; }).join(', ');
 const minutes = Math.round(results.reduce((a, r) => a + r.seconds, 0) / 60);
 const contaminated = graded.filter((r) => r.env !== 'CLEAN');
+const timeouts = graded.filter((r) => r.outcome === 'TIMEOUT');
 const summary = [
   `# Eval run ${runId}`, '', `Baseline: ${baseline} (${baselineSha})`, '', `Environment: ${envLine}`, '', `Runner node: ${nodeLine}`, '', `Model server: ${modelServerId || 'n/a'}`, '',
   `Score: **${passed}/${graded.length}** (${graded.length ? Math.round((100 * passed) / graded.length) : 0}%)  |  ${byDiff}  |  ${minutes} min total`, '',
   ...(notRun.length ? [`Not run: ${notRun.length} task(s) excluded from the score because setup failed before the agent started (${notRun.map((r) => r.id).join(', ')}). Re-run them.`, ''] : []),
+  ...(timeouts.length ? [`Timeouts: ${timeouts.length} task(s) hit their time limit (${timeouts.map((r) => `${r.id}${r.graderPass ? ' grader PASS' : ''}`).join(', ')}); a TIMEOUT never counts as PASS, even when the grader passes.`, ''] : []),
   ...(contaminated.length ? [`Dependency environment: ${contaminated.length} task(s) not CLEAN (${contaminated.map((r) => `${r.id} ${r.env}`).join(', ')}); these never count as PASS. Details in results.json (env, envDetail, graderPass).`, ''] : []),
   '| Task | Title | Level | Result | Time | Changes | Why it failed |', '|---|---|---|---|---|---|---|',
-  ...results.map((r) => `| ${r.id} | ${r.title} | ${r.difficulty} | ${r.env === 'CLEAN' ? (r.pass ? 'PASS' : 'FAIL') : `${r.env} (grader: ${r.graderPass ? 'PASS' : 'FAIL'})`}${r.timedOut ? ' (timeout)' : ''} | ${r.seconds}s | ${r.diff.replace(/\|/g, '/')} | ${r.pass ? '' : r.detail.replace(/\|/g, '/').replace(/\n/g, ' ').slice(0, 160)} |`),
+  ...results.map((r) => `| ${r.id} | ${r.title} | ${r.difficulty} | ${resultLabel(r)}${r.timedOut && r.outcome !== 'TIMEOUT' ? ' (timeout)' : ''} | ${r.seconds}s | ${r.diff.replace(/\|/g, '/')} | ${r.pass ? '' : r.detail.replace(/\|/g, '/').replace(/\n/g, ' ').slice(0, 160)} |`),
 ].join('\n');
 fs.writeFileSync(path.join(outDir, 'summary.md'), summary + '\n');
 fs.writeFileSync(path.join(outDir, 'results.json'), JSON.stringify(results, null, 2));

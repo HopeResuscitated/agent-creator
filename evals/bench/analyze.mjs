@@ -27,7 +27,9 @@ const readText = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { ret
 const run = readJson(path.join(runDir, 'results.json'));
 const base = fs.existsSync(path.join(baseDir, 'results.json')) ? readJson(path.join(baseDir, 'results.json')) : [];
 const B = Object.fromEntries(base.map((r) => [r.id, r]));
-const res = (r) => (r ? `${r.env && r.env !== 'CLEAN' ? r.env : r.pass ? 'PASS' : 'FAIL'}${r.timedOut ? '(to)' : ''}` : '-');
+// results.json from run.ts with evals/outcome.ts carries 'outcome' (TIMEOUT is its own class); older files are shown
+// as recorded (pass + '(to)' suffix), not reclassified.
+const res = (r) => (r ? (r.outcome ? `${r.outcome}${r.outcome === 'TIMEOUT' && r.graderPass ? '(gp)' : ''}` : `${r.env && r.env !== 'CLEAN' ? r.env : r.pass ? 'PASS' : 'FAIL'}${r.timedOut ? '(to)' : ''}`) : '-');
 const out = [];
 
 // ---------- tasks ----------
