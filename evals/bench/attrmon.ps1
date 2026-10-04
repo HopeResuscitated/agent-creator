@@ -2,7 +2,7 @@
 # exists (or once with -Once). Per sample, one line per relevant process:
 #   jcode  <pid> <class> start=<t> ppid=<p> <cmd>  class = eval (cmdline has --provider-profile evalbroker) | EXTERNAL
 #   ollama <pid> <class> <name> lport=<p> <cmd>    owner of an ESTABLISHED client connection to 127.0.0.1:11434;
-#                                                  class = eval-meter | eval-warmup (suite.sh's 1-token curl) | eval-probe | EXTERNAL
+#                                                  class = eval-meter | eval-warmup (suite.sh's 1-token curl) | eval-probe | eval-gate (run.ts pin query) | EXTERNAL
 # Anything EXTERNAL also gets an "EXTERNAL-ACTIVITY ..." line: a run whose window contains one is CONTAMINATED.
 # Sampling can miss processes that live less than one interval (e.g. the warm-up curl); watch.ps1's TRIP lines cover those.
 #   powershell -File attrmon.ps1 -Log <file> -StopFile <file> [-Interval 20] [-Once]
@@ -21,7 +21,7 @@ while ($Once -or -not (Test-Path $StopFile)) {
   foreach ($c in $conns) {
     $p = $procs[[int]$c.OwningProcess]; $cmd = if ($p) { ("$($p.CommandLine)" -replace '\s+', ' ') } else { '(gone)' }
     $cmd = $cmd.Substring(0, [Math]::Min(200, $cmd.Length)); $name = if ($p) { $p.Name } else { '?' }
-    $cls = if ($cmd -match 'meter\.mjs') { 'eval-meter' } elseif ($cmd -match 'curl\.exe .*/api/generate .*num_predict') { 'eval-warmup' } elseif ($cmd -match 'streamprobe') { 'eval-probe' } else { 'EXTERNAL' }
+    $cls = if ($cmd -match 'meter\.mjs') { 'eval-meter' } elseif ($cmd -match 'curl\.exe .*/api/generate .*num_predict') { 'eval-warmup' } elseif ($cmd -match 'streamprobe') { 'eval-probe' } elseif ($cmd -match 'evals[\/]run.ts') { 'eval-gate' } else { 'EXTERNAL' }
     W ("ollama {0} {1} {2} lport={3} {4}" -f $c.OwningProcess, $cls, $name, $c.LocalPort, $cmd)
     if ($cls -eq 'EXTERNAL') { W ("EXTERNAL-ACTIVITY ollama-client pid={0} {1} {2}" -f $c.OwningProcess, $name, $cmd) }
   }

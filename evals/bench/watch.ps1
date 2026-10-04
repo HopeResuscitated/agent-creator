@@ -7,7 +7,9 @@
 #   ollama-connection-from-non-meter  an established connection to Ollama (127.0.0.1:<OllamaPort>) not owned by the meter
 #   meter-connection-from-non-broker  a connection to the meter not owned by the wrapper's broker (powershell running
 #                                     run-in-job.ps1); expected for every request in control mode (agent dials directly)
-#   agent-nonloopback-connection      the agent or a descendant has a connection whose remote is not 127.0.0.1 / ::1
+#   agent-nonloopback-connection      the agent or a descendant has a connection whose remote is not loopback (127.0.0.0/8, ::1);
+#                                     root=eval (tree of a jcode with --provider-profile evalbroker) or root=external
+#                                     (any other jcode.exe tree, e.g. a manual run: contamination, not the eval agent)
 #   outside-dir-written               the canary directory outside the sandbox is no longer empty
 # Heartbeat every 30 samples; final "watch stop" line with totals. Read-only: never kills or changes anything.
 param(
@@ -33,8 +35,9 @@ while (-not (Test-Path -LiteralPath $Stop)) {
   $agents = @($procs | Where-Object { $_.Name -ieq $AgentImage })
   if ($agents.Count -gt $maxAgents) { $maxAgents = $agents.Count }
   # agent tree = agent processes and all their descendants
-  $tree = @{}; foreach ($a in $agents) { $tree[[int]$a.ProcessId] = $true }
-  do { $grew = $false; foreach ($p in $procs) { if (-not $tree.ContainsKey([int]$p.ProcessId) -and $tree.ContainsKey([int]$p.ParentProcessId)) { $tree[[int]$p.ProcessId] = $true; $grew = $true } } } while ($grew)
+  # $tree[pid] = 'eval' | 'external': the class of the tree's root jcode (eval = generated evalbroker profile)
+  $tree = @{}; foreach ($a in $agents) { $tree[[int]$a.ProcessId] = $(if ("$($a.CommandLine)" -match '--provider-profile evalbroker') { 'eval' } else { 'external' }) }
+  do { $grew = $false; foreach ($p in $procs) { if (-not $tree.ContainsKey([int]$p.ProcessId) -and $tree.ContainsKey([int]$p.ParentProcessId)) { $tree[[int]$p.ProcessId] = $tree[[int]$p.ParentProcessId]; $grew = $true } } } while ($grew)
   $conns = @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue)
   foreach ($c in $conns) {
     $owner = [int]$c.OwningProcess; $p = $byPid[$owner]
@@ -48,8 +51,8 @@ while (-not (Test-Path -LiteralPath $Stop)) {
       $isBroker = $p -and $p.Name -ieq 'powershell.exe' -and "$($p.CommandLine)" -match 'run-in-job\.ps1'
       if (-not $isBroker) { W "TRIP meter-connection-from-non-broker pid=$owner name=$name cmd=$cmd" }
     }
-    if ($tree.ContainsKey($owner) -and $c.RemoteAddress -ne '127.0.0.1' -and $c.RemoteAddress -ne '::1') {
-      W "TRIP agent-nonloopback-connection pid=$owner remote=$($c.RemoteAddress):$($c.RemotePort)"
+    if ($tree.ContainsKey($owner) -and -not ("$($c.RemoteAddress)" -match '^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$') -and $c.RemoteAddress -ne '::1') {
+      W "TRIP agent-nonloopback-connection pid=$owner remote=$($c.RemoteAddress):$($c.RemotePort) name=$name root=$($tree[$owner])"
     }
   }
   if ((Test-Path -LiteralPath $OutsideDir) -and @(Get-ChildItem -Force -LiteralPath $OutsideDir -ErrorAction SilentlyContinue).Count -gt 0) {

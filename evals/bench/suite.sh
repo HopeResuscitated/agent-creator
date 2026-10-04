@@ -64,7 +64,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WBENCH/watch.ps1" -Out
   -MeterPid "$MPID" -OutsideDir "$(cygpath -w "$OUT/outside")" -MeterAddr "$MHOST" -MeterPort "$MPORT" -OllamaPort "${METER_UPSTREAM##*:}" & WPID=$!
 date -Iseconds > "$EV/suite-start.txt"
 # Warm the model directly (outside the meter) so neither arm's first task pays the cold load.
-curl -s -m 600 "http://$METER_UPSTREAM/api/generate" -d "{\"model\":\"$MODEL\",\"prompt\":\"ok\",\"stream\":false,\"options\":{\"num_predict\":1}}" > "$EV/warmup.json"; echo "warmup rc=$?"
+date -Iseconds > "$EV/warmup-start.txt"
+curl -s -m 600 "http://$METER_UPSTREAM/api/generate" -d "{\"model\":\"$MODEL\",\"prompt\":\"ok\",\"stream\":false,\"options\":{\"num_predict\":1}}" > "$EV/warmup.json"; echo "warmup rc=$?"; date -Iseconds > "$EV/warmup-end.txt"
 EXTRA=()
 [ "$MODE" = control ] && EXTRA=(--no-contain-unsafe)
 ( cd "$REPO" && "$NODE_BIN" evals/run.ts --agent jcode --provider ollama --model "$MODEL" --model-upstream "$METER_LISTEN" "${JARGS[@]}" "${EXTRA[@]}" "$@" ) 2>&1 | tee "$EV/suite.out"; RUN_RC=${PIPESTATUS[0]}
@@ -83,6 +84,8 @@ INTEGRITY=1
 "$NODE_BIN" "$WBENCH/fpcmp.mjs" "$WEV/fp-pre.txt" "$WEV/fp-post.txt" || INTEGRITY=0
 if cmp -s "$EV/ev-pre.txt" "$EV/ev-post.txt"; then echo "~/.jcode fingerprint UNCHANGED"; else echo "~/.jcode fingerprint DIFFERS"; INTEGRITY=0; fi
 echo "TRIP lines: $(grep -c ' TRIP ' "$EV/watch.log")"
+# Attribution of every TRIP line (tripclass.mjs); informational: VIOLATION/UNATTRIBUTED lines need review.
+"$NODE_BIN" "$WBENCH/tripclass.mjs" --ev "$WEV" --mode "$MODE" --out "$WEV/tripclass.txt" | head -2
 grep -h "Effective-config fingerprint" "$EV/suite.out"
 RUNDIR=$(grep -h "^Report: " "$EV/suite.out" | sed 's/^Report: //; s/\r$//; s/[\\/]summary\.md$//')
 if [ -n "$RUNDIR" ]; then
