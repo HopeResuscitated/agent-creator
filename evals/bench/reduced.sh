@@ -7,7 +7,7 @@
 # Gate before each run: repo HEAD (if --expect-head), no tracked changes, no client connected to Ollama, no
 # jcode.exe running. After each run, with --ref: every task's effective-config fingerprint must equal the
 # reference run's for the same task, else the sequence stops (exit 4). Any non-zero suite.sh exit (6 meter died,
-# 7 slept, 8 run.ts failed/refused, 10 integrity, 130 interrupted, ...) also stops it with that code. Log: <out>/reduced.log.
+# 7 slept, 8 run.ts failed/refused, 10 integrity, 11 Ollama restarted, 130 interrupted, ...) also stops it with that code. Log: <out>/reduced.log.
 # Cycle-6 reduced benchmark: reduced.sh --out <dir> --ref <C1>/effective-config.json D1-R:control C2-R:contain D2-R:control
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/node.sh" || exit 3

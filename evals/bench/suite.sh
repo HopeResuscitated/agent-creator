@@ -14,7 +14,8 @@
 # Exit codes (first matching wins; every check still runs and is printed first):
 #   0 done   1 meter could not start / port busy   2 usage   3 node gate (node.sh)
 #   6 meter died during the run   7 machine slept during the run   8 run.ts failed or refused (e.g. pin gate exit 2)
-#   10 integrity: repo fingerprint or ~/.jcode changed during the run   130 interrupted (Ctrl+C / TERM / HUP)
+#   10 integrity: repo fingerprint or ~/.jcode changed during the run   11 Ollama server restarted during the run
+#   130 interrupted (Ctrl+C / TERM / HUP)
 # Any non-zero exit means the run is NOT evidence.
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/node.sh" || exit 3
@@ -56,7 +57,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WBENCH/keepawake.ps1" 
 "$NODE_BIN" "$WBENCH/evfp.mjs" "$WEV/ev-pre.txt" >/dev/null
 ( cd "$REPO" && git rev-parse HEAD > "$EV/head.txt" && git status --short > "$EV/status-pre.txt" )
 # record the running Ollama server's effective settings (observed, not pinned; informational)
-"$NODE_BIN" "$WBENCH/ollamaenv.mjs" --expect "$WBENCH/ollama-server-env.observed.json" --out "$WEV/ollama-server-env.txt" | tail -1
+# OLLAMA_SERVER_LOG overrides the server.log location (tests); the start time of the running server is compared after the run
+OLOG=(); [ -n "${OLLAMA_SERVER_LOG:-}" ] && OLOG=(--log "$OLLAMA_SERVER_LOG")
+"$NODE_BIN" "$WBENCH/ollamaenv.mjs" "${OLOG[@]}" --expect "$WBENCH/ollama-server-env.observed.json" --out "$WEV/ollama-server-env.txt" | tail -1
+OSTART_PRE=$("$NODE_BIN" "$WBENCH/ollamaenv.mjs" "${OLOG[@]}" --json | grep -o '"server_started": *"[^"]*"')
 JARGS=()
 if [ -n "${JCODE_BIN:-}" ]; then sha256sum "$JCODE_BIN" > "$EV/jcode-sha.txt"; JARGS=(--jcode-bin "$JCODE_BIN"); else echo "JCODE_BIN unset: run.ts resolves jcode on PATH (not pinned)" | tee "$EV/jcode-sha.txt"; fi
 METER_LOG="$WEV/meter.jsonl" METER_RAW="$WEV/raw" METER_LISTEN=$METER_LISTEN METER_UPSTREAM=$METER_UPSTREAM "$NODE_BIN" "$WBENCH/meter.mjs" > "$EV/meter.out" 2>&1 & MPID_BASH=$!
@@ -101,6 +105,10 @@ touch "$EV/KASTOP"; wait $KAPID 2>/dev/null
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WBENCH/sleepcheck.ps1" -From "$PSTART" -To "$(date -Iseconds)" > "$EV/power.txt" 2>&1; SLEPT=$?
 grep -E "^(power now|POWER WARNING|SLEEP DETECTED)" "$EV/power.txt" | tr -d '\r'
 if [ $METER_ALIVE = 0 ]; then echo "METER DIED DURING THE RUN (see $EV/meter.out): results are NOT evidence"; tail -5 "$EV/meter.out"; echo SUITE-DONE; exit 6; fi
+# an Ollama restart mid-run (crash, manual restart, or an auto-update installing) turns later tasks into model FAILs
+OSTART_POST=$("$NODE_BIN" "$WBENCH/ollamaenv.mjs" "${OLOG[@]}" --json | grep -o '"server_started": *"[^"]*"')
+echo "ollama server start: pre $OSTART_PRE / post $OSTART_POST" | tee -a "$EV/ollama-server-env.txt"
+if [ -z "$OSTART_PRE" ] || [ "$OSTART_PRE" != "$OSTART_POST" ]; then echo "OLLAMA SERVER RESTARTED (or unreadable) DURING THE RUN: results are NOT evidence"; echo SUITE-DONE; exit 11; fi
 if [ $SLEPT != 0 ]; then echo "MACHINE SLEPT DURING THE RUN (see $EV/power.txt): results are NOT evidence"; echo SUITE-DONE; exit 7; fi
 if [ "$RUN_RC" != 0 ]; then echo "RUN.TS FAILED OR REFUSED (exit $RUN_RC, see $EV/suite.out): results are NOT evidence"; echo SUITE-DONE; exit 8; fi
 if [ $INTEGRITY = 0 ]; then echo "INTEGRITY: repo or ~/.jcode changed during the run (see fp-*.txt / ev-*.txt): results are NOT evidence"; echo SUITE-DONE; exit 10; fi

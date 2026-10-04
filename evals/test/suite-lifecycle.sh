@@ -40,6 +40,17 @@ kill $BL 2>/dev/null; wait $BL 2>/dev/null; sleep 1
 if [ $rc = 1 ] && grep -q "already in use" "$S/busy.log" && [ ! -e "$S/busy/ev-B/meter.out" ]; then
   ok busy "suite exit 1 before starting a meter"; else bad busy "suite exit $rc (see $S/busy.log)"; fi
 
+# 2b. Ollama restart during the run (simulated: a copy of server.log gains a new "server config" line after suite.sh
+#     has read the server start time); must be exit 11 and must win over the refused run's exit 8
+REAL_LOG="$(cygpath -u "$LOCALAPPDATA")/Ollama/server.log"; FAKE_LOG="$S/server.log"
+grep 'msg="server config"' "$REAL_LOG" | tail -1 > "$FAKE_LOG"
+OLLAMA_SERVER_LOG="$(cygpath -m "$FAKE_LOG")" JCODE_BIN=$REFUSED bash "$SUITE" --out "$S/restart" X contain --only T01 > "$S/restart.log" 2>&1 & SP=$!
+for i in $(seq 1 150); do grep -q "OLLAMAENV" "$S/restart/ev-X/ollama-server-env.txt" 2>/dev/null && break; sleep 0.2; done
+sleep 1; sed 's/^time=[^ ]*/time=2099-01-01T00:00:00.000-05:00/' "$FAKE_LOG" | tail -1 >> "$FAKE_LOG"
+wait $SP; rc=$?; sleep 2
+if [ $rc = 11 ] && grep -q "OLLAMA SERVER RESTARTED" "$S/restart.log" && [ "$(listening)" = 0 ]; then
+  ok restart "simulated Ollama restart -> suite exit 11 (not evidence)"; else bad restart "suite exit $rc (see $S/restart.log)"; fi
+
 # 3. interrupt during startup
 JCODE_BIN=$REFUSED bash "$SUITE" --out "$S/int" I contain --only T01 > "$S/int.log" 2>&1 & SP=$!
 for i in $(seq 1 100); do [ -e "$S/int/ev-I/meter.out" ] && break; sleep 0.2; done
