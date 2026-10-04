@@ -30,6 +30,8 @@ sleep 4
 # the dual-stack client to ::ffff:127.0.0.4 must exist (Windows reports it as 127.0.0.4: Get-NetTCPConnection
 # normalizes IPv4-mapped remotes; watch.ps1/tripclass.mjs still accept the mapped form defensively)
 MAPPED=$(powershell.exe -NoProfile -Command "@(Get-NetTCPConnection -RemotePort $((P+2)) -State Established -ErrorAction SilentlyContinue | Where-Object { \"\$(\$_.RemoteAddress)\" -in @('127.0.0.4', '::ffff:127.0.0.4') }).Count" | tr -d '\r')
+# positive control for the 127.0.0.3 negative check: the connection must exist, or "no TRIP" proves nothing
+LOOP3=$(powershell.exe -NoProfile -Command "@(Get-NetTCPConnection -RemoteAddress 127.0.0.3 -RemotePort $P -State Established -ErrorAction SilentlyContinue).Count" | tr -d '\r')
 sleep 2; touch "$S/STOP"; wait $WP; kill $CL $SV 2>/dev/null; wait 2>/dev/null
 F=0; chk() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; F=$((F+1)); fi; }
 chk meter-client-trip 'grep -q "TRIP meter-connection-from-non-broker .*name=jcode.exe" "$S/watch.log"'
@@ -37,6 +39,7 @@ chk mapped-loopback-present '[ "${MAPPED:-0}" -ge 1 ]'
 chk no-mapped-loopback-trip '! grep -q "agent-nonloopback-connection .*remote=::ffff:127." "$S/watch.log"'
 chk ollama-port-any-address 'grep -q "TRIP ollama-connection-from-non-meter .*name=jcode.exe" "$S/watch.log"'
 chk no-sample-failure '! grep -q "watch-sample-failed" "$S/watch.log"'
+chk loopback-127.0.0.3-present '[ "${LOOP3:-0}" -ge 1 ]'
 chk no-127.0.0.3-trip '! grep -q "agent-nonloopback-connection .*remote=127\." "$S/watch.log"'
 if [ -n "$LAN" ]; then chk lan-trip-root-external 'grep -q "agent-nonloopback-connection .*remote=$LAN:$((P+1)) name=jcode.exe root=external" "$S/watch.log"'; else echo "SKIP lan-trip (no LAN IPv4)"; fi
 "$NODE_BIN" "$(cygpath -m "$HERE/../bench/tripclass.mjs")" --ev "$WS" --mode contain > "$S/tripclass.txt"; TC=$?

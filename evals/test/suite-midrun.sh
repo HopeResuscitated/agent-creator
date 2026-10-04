@@ -50,18 +50,24 @@ if [ "$CASES" = meter-dies ] || [ "$CASES" = all ]; then
   sleep 1
   JCODE_BIN=$A2 METER_UPSTREAM=127.0.0.1:$PORT timeout 1500 bash evals/bench/suite.sh --out "$S/o2" md contain --only T01 > "$S/meter-dies.log" 2>&1 & SP=$!
   for i in $(seq 1 180); do grep -q 'chat/completions' "$S/fake-hang.out" 2>/dev/null && break; sleep 1; done
-  MP=$(powershell.exe -NoProfile -Command "(Get-CimInstance Win32_Process | Where-Object { \"\$(\$_.CommandLine)\" -match 'bench[\\\\/]meter\\.mjs' } | Select-Object -First 1).ProcessId" | tr -d '\r')
+  REACHED=0; grep -q 'chat/completions' "$S/fake-hang.out" 2>/dev/null && REACHED=1   # the fault is injected MID-run
+  RUNNING=$(survivors)                                     # positive control: the probe sees this run's processes
+  # the meter = the process LISTENING on the meter port (exactly one, a node.exe), not a command-line guess
+  MP=$(powershell.exe -NoProfile -Command "\$c=@(Get-NetTCPConnection -LocalAddress 127.0.0.2 -LocalPort 11439 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); if (\$c.Count -eq 1 -and (Get-Process -Id \$c[0]).ProcessName -eq 'node') { \$c[0] }" | tr -d '\r')
   t0=$(date +%s)
   [ -n "$MP" ] && powershell.exe -NoProfile -Command "Stop-Process -Id $MP -Force" > /dev/null 2>&1   # not taskkill: git-bash mangles /F
   sleep 2; MGONE=$(powershell.exe -NoProfile -Command "@(Get-Process -Id ${MP:-0} -ErrorAction SilentlyContinue).Count" | tr -d '\r')
   wait $SP; RC=$?; dt=$(( $(date +%s) - t0 ))
   kill $FP 2>/dev/null; wait $FP 2>/dev/null; FP=
   R2=$(newest_results)
+  chk meter-dies-agent-reached-model-before-kill "[ $REACHED = 1 ]"
+  chk meter-dies-probe-sees-run "[ \"${RUNNING:-0}\" -ge 3 ]"
   chk meter-dies-meter-found "[ -n '$MP' ]"
   chk meter-dies-meter-killed "[ '$MGONE' = 0 ]"
   chk meter-dies-suite-exit-6 "[ $RC = 6 ]"
   chk meter-dies-not-evidence-line "grep -q 'METER DIED DURING THE RUN' '$S/meter-dies.log'"
-  chk meter-dies-no-pass "! grep -q '\"pass\": true' '$R2/results.json' 2>/dev/null"
+  chk meter-dies-results-written "[ -n '$R2' ] && [ '$R2' != '$before' ] && [ -f '$R2/results.json' ]"
+  chk meter-dies-no-pass "[ -f '$R2/results.json' ] && ! grep -q '\"pass\": true' '$R2/results.json'"
   sleep 2; chk meter-dies-no-survivors "[ \"\$(survivors)\" = 0 ]"
   [ -n "$R2" ] && [ "$R2" != "$before" ] && mv "$R2" "$S/"
   echo "meter-dies: suite ended ${dt}s after the meter was killed"
@@ -79,7 +85,7 @@ if [ "$CASES" = trip-review ] || [ "$CASES" = all ]; then
   chk trip-review-suite-exit-0 "[ $RC = 0 ]"
   chk trip-review-marker "[ -f '$S/o3/ev-tr/TRIP-NEEDS-REVIEW' ]"
   chk trip-review-last-line "tail -1 '$S/trip-review.log' | grep -q 'SUITE-DONE (TRIP NEEDS REVIEW'"
-  chk trip-review-unattributed "grep -q 'UNATTRIBUTED' '$S/o3/ev-tr/tripclass.txt'"
+  chk trip-review-unattributed-is-the-stray-client "grep 'UNATTRIBUTED' '$S/o3/ev-tr/tripclass.txt' | grep -q 'connect($PORT'"
   sleep 2; chk trip-review-no-survivors "[ \"\$(survivors)\" = 0 ]"
   [ -n "$R3" ] && [ "$R3" != "$before" ] && mv "$R3" "$S/"
 fi

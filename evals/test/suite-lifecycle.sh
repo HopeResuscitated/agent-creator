@@ -6,6 +6,8 @@
 #   refused   a non-pinned jcode -> run.ts exits 2 -> suite.sh exit 8, meter/watch/keepawake stopped
 #   busy      something already listens on the meter port -> suite.sh exit 1 before starting anything
 #   interrupt TERM during startup -> suite.sh exit 130, INTERRUPTED marker, meter/watch/keepawake stopped
+#   also: labels (5 unsafe labels refused with the label message), meter-addr (8 malformed addresses refused with the
+#   address message), restart (simulated Ollama restart -> exit 11)
 # Prints one PASS/FAIL line per case and "SUITE-LIFECYCLE PASS|FAIL"; exit 0 only if all pass.
 set -u
 S=${1:?scratch dir}; REFUSED=${2:?refused jcode.exe}
@@ -23,10 +25,10 @@ listening() { powershell.exe -NoProfile -Command "@(Get-NetTCPConnection -LocalA
 
 # 0. unsafe labels are refused before anything is deleted (ev-<label> is rm -rf'd)
 mkdir -p "$S/keep"; touch "$S/keep/precious"; LF=0
-for l in "../keep" "a/../../keep" "" ".." "-x"; do bash "$SUITE" --out "$S/o" "$l" contain --only T01 > /dev/null 2>&1; [ $? = 2 ] || LF=1; done
+for l in "../keep" "a/../../keep" "" ".." "-x"; do bash "$SUITE" --out "$S/o" "$l" contain --only T01 > "$S/label.err" 2>&1; [ $? = 2 ] && grep -q "label must match" "$S/label.err" || LF=1; done
 if [ $LF = 0 ] && [ -e "$S/keep/precious" ]; then ok labels "5 unsafe labels -> exit 2, sibling dir intact"; else bad labels "an unsafe label was not refused"; fi
 # 0b. meter addresses are interpolated into PowerShell: anything but 127.x.x.x:<port> is refused before any process starts
-MF=0; for v in "127.0.0.2:11439; Remove-Item x" "0.0.0.0:11439" "127.0.0.2" ":1"; do METER_LISTEN=$v bash "$SUITE" --out "$S/o" M contain --only T01 > /dev/null 2>&1; [ $? = 2 ] || MF=1; METER_UPSTREAM=$v bash "$SUITE" --out "$S/o" M contain --only T01 > /dev/null 2>&1; [ $? = 2 ] || MF=1; done
+MF=0; for v in "127.0.0.2:11439; Remove-Item x" "0.0.0.0:11439" "127.0.0.2" ":1"; do METER_LISTEN=$v bash "$SUITE" --out "$S/o" M contain --only T01 > "$S/maddr.err" 2>&1; [ $? = 2 ] && grep -q "must be 127.x.x.x" "$S/maddr.err" || MF=1; METER_UPSTREAM=$v bash "$SUITE" --out "$S/o" M contain --only T01 > "$S/maddr.err" 2>&1; [ $? = 2 ] && grep -q "must be 127.x.x.x" "$S/maddr.err" || MF=1; done
 if [ $MF = 0 ] && [ ! -e "$S/o/ev-M" ]; then ok meter-addr "8 malformed METER_LISTEN/METER_UPSTREAM values -> exit 2, nothing created"; else bad meter-addr "a malformed meter address was not refused"; fi
 
 # 1. refused run
