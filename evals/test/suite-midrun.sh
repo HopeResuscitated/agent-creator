@@ -7,10 +7,9 @@
 # Cases:
 #   model-fail  (~2 min) upstream answers with text only -> the task FAILs; suite exit 0 (a FAIL is a result, not a
 #               harness failure); results.json outcome FAIL, pass=false; no harness process survives
-#   meter-dies  (~16 min) upstream hangs; the meter is killed while the agent waits. OBSERVED 2026-10-04: the agent's
-#               in-flight request is not ended by the meter's death (it waits until the task timeout, 15 min for T01);
-#               the suite must then exit 6 "METER DIED DURING THE RUN" (not evidence), with no PASS and no surviving
-#               harness process. The test checks exactly that.
+#   meter-dies  upstream hangs; the meter is killed while the agent waits -> the suite must exit 6 "METER DIED DURING
+#               THE RUN" (not evidence), with no PASS and no surviving harness process. The time from the kill to the
+#               suite's end is printed (outer limit 1500 s).
 # Results dirs the cases create under evals/results are moved into the scratch dir (they are not evidence).
 set -u
 cd "$(dirname "$0")/../.."
@@ -50,11 +49,13 @@ if [ "$CASES" = meter-dies ] || [ "$CASES" = all ]; then
   for i in $(seq 1 180); do grep -q 'chat/completions' "$S/fake-hang.out" 2>/dev/null && break; sleep 1; done
   MP=$(powershell.exe -NoProfile -Command "(Get-CimInstance Win32_Process | Where-Object { \"\$(\$_.CommandLine)\" -match 'bench[\\\\/]meter\\.mjs' } | Select-Object -First 1).ProcessId" | tr -d '\r')
   t0=$(date +%s)
-  [ -n "$MP" ] && taskkill //F //PID "$MP" > /dev/null 2>&1
+  [ -n "$MP" ] && powershell.exe -NoProfile -Command "Stop-Process -Id $MP -Force" > /dev/null 2>&1   # not taskkill: git-bash mangles /F
+  sleep 2; MGONE=$(powershell.exe -NoProfile -Command "@(Get-Process -Id ${MP:-0} -ErrorAction SilentlyContinue).Count" | tr -d '\r')
   wait $SP; RC=$?; dt=$(( $(date +%s) - t0 ))
   kill $FP 2>/dev/null; wait $FP 2>/dev/null; FP=
   R2=$(newest_results)
   chk meter-dies-meter-found "[ -n '$MP' ]"
+  chk meter-dies-meter-killed "[ '$MGONE' = 0 ]"
   chk meter-dies-suite-exit-6 "[ $RC = 6 ]"
   chk meter-dies-not-evidence-line "grep -q 'METER DIED DURING THE RUN' '$S/meter-dies.log'"
   chk meter-dies-no-pass "! grep -q '\"pass\": true' '$R2/results.json' 2>/dev/null"

@@ -23,4 +23,8 @@ hits=$(git grep -n -E 'curl[^#]*(-o|--output)[ =]+/(dev/null|tmp)' -- '*.sh' '*.
 [ -n "$hits" ] && bad "native curl given an MSYS path: $hits"
 hits=$(git grep -n -E '(^|[ "=])/tmp/' -- 'evals/*.sh' 'evals/*.ps1' 'evals/*.mjs' 'evals/*.ts' | grep -vE '^[^:]*:[0-9]*:[[:space:]]*(#|//)' || true)
 [ -n "$hits" ] && bad "bare /tmp path: $hits"
+# taskkill /F etc. in bash: git-bash's MSYS path conversion turns /F into F:/ (fails) unless conversion is disabled on
+# that line (MSYS2_ARG_CONV_EXCL='*'); the doubled //F form fails where conversion is already off. Use Stop-Process.
+hits=$(git grep -n -E 'taskkill +/' -- 'evals/*.sh' | grep -vE '^[^:]*:[0-9]*:[[:space:]]*#' | grep -v "MSYS2_ARG_CONV_EXCL" || true)
+[ -n "$hits" ] && bad "taskkill with /options in bash without MSYS2_ARG_CONV_EXCL: $hits"
 [ $F = 0 ] && { echo "LINT PASS"; exit 0; } || { echo "LINT FAIL ($F)"; exit 1; }

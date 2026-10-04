@@ -10,7 +10,7 @@ count_jcode() { tasklist 2>/dev/null | grep -ci "^jcode.exe"; }
 
 # Pre-existing jcode.exe might be your interactive session, so don't kill it blindly. Set PROBE_KILL_ALL=1 to clear them.
 if [ "$(count_jcode)" != "0" ]; then
-  if [ "${PROBE_KILL_ALL:-0}" = "1" ]; then echo "killing pre-existing jcode:"; taskkill /F /T /IM jcode.exe 2>&1 | tr -d '\r'; sleep 1
+  if [ "${PROBE_KILL_ALL:-0}" = "1" ]; then echo "killing pre-existing jcode:"; MSYS2_ARG_CONV_EXCL='*' taskkill /F /T /IM jcode.exe 2>&1 | tr -d '\r'; sleep 1
   else echo "STRAY jcode already running (not started by this probe). Close it, or rerun with PROBE_KILL_ALL=1:"; tasklist | grep -i jcode; exit 2; fi
 fi
 
