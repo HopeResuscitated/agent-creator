@@ -1,12 +1,14 @@
 # Handoff: pick up here
 
-Updated 2026-10-04 (HARDWARE-READY CHECKPOINT: all non-hardware work done; C not started). Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
+Updated 2026-10-04 (HARDWARE-READY CHECKPOINT, re-confirmed after the post-checkpoint hardening: all non-hardware work
+done; C not started). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
 `evals/REPIN.md`. Evidence: `C:\Users\cierra\hermes-bench-archive` (cycle9 = A2, Phase B, A3 candidate, final
 regression, pre-C tooling checks).
 
 ## Where we are
-Containment is proven (all invariants hold; decision rule passed). Last harness-code commit `5d3e8fe`; later commits add
-re-pin tooling and documentation only. All work is local (branch `cierra-wip-2026-09-29`); nothing has been pushed.
+Containment is proven (all invariants hold; decision rule passed). Last harness-code commit `f26e6ff` (2026-10-04
+hardening: classification, failure propagation, monitoring, re-pin automation; see "Post-checkpoint hardening"). No
+evidence was produced by the new code: every authoritative result predates it and is unchanged. All work is local (branch `cierra-wip-2026-09-29`); nothing has been pushed.
 **C has not started and must not start before the hardware decision.**
 
 ### Evidence classes (how to read every result in this file)
@@ -34,14 +36,17 @@ re-pin tooling and documentation only. All work is local (branch `cierra-wip-202
 | Reference agent | 18/18 (every grader passable) |
 | Pre-C preparation | A3 adopted as candidate (not pinned), `REPIN.md`, re-pin tooling built and exercised, AGENTS.md corrected |
 | Hermes compression on the main provider | operational config only (see "Hermes compression model"); not an evaluation input |
+| Post-checkpoint hardening (2026-10-04) | 8 harness defects fixed, re-pin + C preflight automated, offline test suite (see below; `evals/AUDIT.md`) |
 
 ### Known limitations (kept on record; none is hidden or reclassified)
 CPU / model throughput (this machine):
 - **T08**: TIMEOUT in all 4 post-A2 runs. CPU/model throughput (continuous progress, decode 3.9-4.8 tok/s, first token
   up to 274 s, reference passes). Timeout unchanged (30 min).
 - **T13**: TIMEOUT both modes post-A2 (2700 s). CPU/model throughput; A2 removed the early exit on partial prose.
-- **T03 / T14 / T17**: TIMEOUT in cycle 8 (pre-A2), slow-but-progressing generation, no truncated streams (T14 control
-  also had build errors). Historical CPU-throughput limitation; not rerun after A2.
+- **T03 / T14 / T17** (cycle 8, pre-A2, as recorded): contained PASS(to) in all three (= TIMEOUT as recorded; for T03 the wrapper's own line says the
+  agent exited by itself at 901 s on its 900 s limit, the record is kept);
+  control T03 PASS, T14 FAIL(to) = TIMEOUT (also build errors), T17 PASS. Slow-but-progressing generation, no truncated
+  streams. Historical CPU-throughput limitation; not run on the A2 pin (they are C tasks).
 - **T05 control timing**: 2 of 5 authoritative control runs are TIMEOUT at 1201 s (tests passed when graded; recorded
   as TIMEOUT, not PASS). T05 sits at its limit on this CPU.
 
@@ -52,6 +57,9 @@ Model behaviour (independent of hardware):
 - **Malformed tool arguments**: the model sometimes emits malformed tool calls. Ollama-side XML failures are handled by
   A2 (retry). `edits` sent as a string (2 of 24 edit calls) is fixed on the jcode side by A3 (adopted, not yet pinned).
   Fused key names stay rejected (model output corruption).
+- **Hallucinated tool name**: a call to a tool that does not exist ends the jcode run (`Error: Tool 'x' is not
+  allowed`, exit 1) instead of returning an error result to the model; identical on A2 and A3 (a3offline T4,
+  2026-10-04). Recorded, not changed; it would show up as a task FAIL, never as a PASS.
 
 ### Pending, hardware-dependent (none of this is done)
 - A3 authoritative re-pin (`REPIN.md` steps 4-11)
@@ -80,6 +88,12 @@ Runs before `3f9df6c` are not fingerprint-comparable (the jcode hash changed on 
   the pinned binary rejects both string forms, A3 applies them exactly like a native array and still rejects garbage;
   A2 scenarios unchanged. Now in the repo as `evals/bench/editstring.mjs` (`--expect fixed|unfixed`), re-run
   2026-10-03: A3 `EDITSTRING PASS` (fixed), A2 `EDITSTRING PASS` (unfixed).
+- **Offline comparison (2026-10-04, `a3offline.mjs`)**: both REAL binaries against the same scripted fake provider, 18
+  scenarios (normal, text+EOF, Ollama-rejected tail, HTTP 500 once/always, tool then EOF, partial text not in history,
+  2 ordered tool calls, duplicate call ids, truncated JSON arguments, unknown tool, failed edit, arguments split across
+  deltas, edit E1-E4): identical behaviour in 16, E2/E3 differ as designed, every per-build invariant holds (no
+  duplicate tool execution, discarded text never re-sent, invalid calls are errors with the file untouched), ~/.jcode
+  unchanged. Offline evidence only: it de-risks the re-pin, it does not make A3 authoritative.
 - **Why it is not authoritative**: no real task has run on it, there is no fingerprint baseline for it, and pinning
   it now would force a CPU baseline that the hardware change discards anyway. Every validated result in this file
   was produced by the A2 binary.
@@ -96,6 +110,14 @@ Runs before `3f9df6c` are not fingerprint-comparable (the jcode hash changed on 
 | `quanttrial.mjs` | replays real captured agent requests against one model; malformed-call classes, Wilson CI, first-token and decode rates (first token is cold-cache: replays get no prefix reuse, so compare quants with each other, not with agent-run meters) | offline 13/13 classification checks; real Ollama: 1 request (2,444-token prompt, first token 81 s, decode 10.9 tok/s, valid tool call) |
 | `editstring.mjs` | A3 behaviour check (fake server, real jcode) | see A3 above |
 | `attrmon.ps1` | attribution monitor (EXTERNAL-ACTIVITY lines) as used for b6, now in the repo | idle check: no false positives |
+| `repin.mjs` (2026-10-04) | REPIN.md steps 1-12 as ordered, fail-closed stages with a record; `--dry-run` read-only | dry run: NOT READY as expected (no discrete GPU, CPU model, no quant decision); A3 identity checks pass |
+| `cpreflight.mjs` (2026-10-04) | READY FOR C or BLOCKED with every reason | BLOCKED, 10 reasons (all hardware / re-pin / pre-registration / auto-update) |
+| `a3offline.mjs` + `fakeprov.mjs` | A2 vs A3 offline behaviour (above) | PASS |
+| `hwprofile.ps1`, `perfreport.mjs`, `perfsample.ps1` | hardware profile; descriptive CPU-vs-GPU performance report (no thresholds) | CPU baseline recorded in `evals/perf/` |
+| `ollamaenv.mjs` | running Ollama server's settings (observed, not pinned) and start time | matches `ollama-server-env.observed.json` |
+| `tripclass.mjs` | attributes every watchdog TRIP line | archived b6 + a2val3 logs: 1,686 TRIP lines, all attributed, 0 VIOLATION |
+| `status.mjs`, `coverage.mjs` | derived status + consistency gate; 18-task coverage matrix | STATUS-CHECK PASS; matrix agrees with "Coverage" |
+| `quanttrial.mjs` (revised 2026-10-04) | transport faults are `stream_error`, not malformed; warm-only median ttfb; cache + model state | offline tests incl. an end-to-end fake-Ollama run |
 
 **T01 x4 (2026-10-03, A2 pin, AC)**: PowerShell and git-bash x contained and control: 2 runs (8 launches), T01 PASS 8/8, environment CLEAN, every fingerprint `df1332d786b0ee3b57f58eb6e7eff90a69e366e5998efe8f9d3b6b5319d60e64` = the T01 entry of the clean A2 validation (2026-10-02), so DET-1 also holds across days. Pre-A2 `4dcba4e1...` reported DIFFERENT, as expected. The re-pin must replace this value. (A first attempt never launched: Windows PowerShell 5.1 turned node's stderr warning into a terminating error; fixed with Start-Process before both runs.)
 
@@ -107,9 +129,14 @@ Summary (details below):
 - Current 32k context cache: ~1.6 GiB at the configured q8_0 KV type (~3.0 GiB at f16); computed from the model
   architecture (48 layers x 4 KV heads x 256 x 32,768 tokens), not read from a GPU.
 - Q8_0 weights: ~30 GiB, an estimate from 30.5B parameters (no Q8_0 file has been downloaded or measured).
-- Additional working memory (compute buffers, runtime overhead): NOT MEASURED.
+- Additional working memory, MEASURED ON CPU only (2026-10-04, model loaded, `evals/perf/cpu-baseline-hwprofile.json`):
+  KV 1,632 MiB (q8_0), compute buffer 240.1 MiB, output 0.58 MiB; Ollama reports the loaded model as 19.1 GiB; the
+  runner holds 19.29 GiB private (weights are repacked for CPU: 4,258.8 + 13,432.5 MiB). GPU working memory: NOT MEASURED.
+- Ollama server settings in force for all authoritative runs: KV cache q8_0, flash attention on, NUM_PARALLEL 1
+  (observed, not pinned: `evals/bench/ollama-server-env.observed.json`).
 - Current CPU throughput: ~3.9-4.8 tok/s decode on AC at 8-11.5k-token prompts.
-- Long-prompt first-token latency: up to ~274 s (b6 T08; 282 s T13, 357 s max in the A2 runs, 801 s once pre-A2).
+- Long-prompt first-token latency: up to ~274 s (b6 T08; 282 s T13 in the clean A2 run; 357 s max in the A2 runs = b5,
+  on battery, historical; 801 s once pre-A2).
 - T08 and T13 (and historically T03/T14/T17) TIMEOUTs are CPU/model-throughput limited: progressing, not stalled.
 
 **Current machine**: AMD Ryzen AI 7 PRO 350 (8 cores / 16 threads), 31.2 GiB RAM, integrated Radeon 860M, no discrete
@@ -283,7 +310,7 @@ Accept rule: no T05 failure ends on an unrecovered incomplete stream; retries bo
 ## Other test status
 | Test | Result |
 |---|---|
-| T03, T14, T17 (cycle 8, pre-A2) | TIMEOUT (CPU: slow but progressing; no truncated streams, so A2 cannot change them; T14 control also had build errors) |
+| T03, T14, T17 (cycle 8, pre-A2) | as recorded: contained PASS(to) x3 (= TIMEOUT; T03 at 901 s: wrapper says the agent exited by itself, record kept); control T03 PASS, T14 FAIL(to) (= TIMEOUT; also build errors), T17 PASS. CPU: slow but progressing; no truncated streams, so A2 cannot change them |
 | T08 contained (cycle 8, pre-A2) | TIMEOUT 1803 s (one turn waited 801 s for the first token) |
 | T08 control (cycle 8, pre-A2) | FAIL at 948 s on the A2 defect, not a timeout |
 | T08 post-A2 | TIMEOUT both modes (b6 AC, b5 battery); see Phase B |
@@ -299,6 +326,8 @@ Accept rule: no T05 failure ends on an unrecovered incomplete stream; retries bo
 | Final regression (2026-10-03 13:17) | PASS (see "Final regression") |
 | gates.sh (2026-10-03 evening) | 15/15 PASS |
 | C re-baseline | NOT RUN, blocked on H |
+| Offline harness tests (2026-10-04) | `node --test "evals/test/*.test.mjs"` 69/69, `lint.sh` PASS, `suite-lifecycle.sh` 5/5, `watch-smoke.sh` PASS |
+| A2 vs A3 offline (`a3offline.mjs`, 2026-10-04) | PASS (see A3) |
 
 ## Final regression (2026-10-03 13:17-13:22, HEAD 5d3e8fe, AC, no external activity)
 | Check | Result |
@@ -323,14 +352,36 @@ after a killed generation answers in 173 ms). A meter that dies mid-run is detec
    see "Hardware decision".
 2. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
-3. **D gate definition** (adopt / change / reject the PROPOSAL in Coverage): needed before D, not before C.
+3. **D gate definition** (adopt / change / reject the PROPOSAL in Coverage): needed before D, not before C. If adopted,
+   the implementation burden is small (existing suite.sh/reduced.sh with all 18 tasks); what it would still need is a D
+   decision rule and timeouts for the 10 non-C tasks (PLAN `D_gate.preparation_if_adopted`).
+4. **Ollama server settings**: keep them observed-only, or pin them (KV q8_0, flash attention, ...) as part of the re-pin.
+5. **After the re-pin**: the quant (step 12) and C's pre-registration (reps, order, timeouts, decision rule).
+6. **Housekeeping** (optional; recommendations in `evals/AUDIT.md`): 114 old sandboxes under `%TEMP%\agent-evals`, the
+   staged Ollama 0.35.1 installer. Nothing has been deleted.
 
 Manual action, not a decision: disable Ollama automatic updates before the next Ollama restart ("Ollama auto-update").
 Already decided: A3 adopted as candidate for the next re-pin; compression on the main provider.
 
-## Hardware-ready checkpoint (2026-10-04)
-Stopped here by instruction. Done: everything not needing new hardware. Not started: C, re-baseline, A3 pin, Ollama
-change, hardware selection. Next step after your hardware decision and installation: `evals/REPIN.md` step 1.
+## Post-checkpoint hardening (2026-10-04)
+Autonomous non-hardware backlog; details and the full audit in `evals/AUDIT.md`. Defects fixed (none touched a pin, a
+baseline, a grader, a timeout or any recorded result):
+1. A run that hit its time limit was scored PASS when the grader passed (22 historical results.json entries say
+   `pass: true, timedOut: true`; the documents already counted them as TIMEOUT). Now TIMEOUT, never PASS (`326ba4e`).
+2. suite.sh dropped run.ts's exit status (a refused run looked done), left meter/watch/keepawake running after Ctrl+C,
+   and could adopt a leftover meter (`ef0c8df`); an unsafe label could make its `rm -rf` leave the output dir (`dc281ad`).
+3. The watchdog called 127.0.0.2 non-loopback (every control-run TRIP pair) (`542d6c8`).
+4. Fake-provider jcode runs had no telemetry opt-out (`1fc6f7f`).
+5. quanttrial counted transport faults as malformed calls and put 0 s timeouts into the ttfb median (`3fa1a60`).
+6. An Ollama restart mid-suite turned later tasks into model FAILs; now exit 11, not evidence (`8336189`).
+7. Two runs started in the same minute shared a run id: the second overwrote the first (`f26e6ff`; archive check: it
+   never happened to archived evidence).
+8. cpreflight's own test step used an argument form node 26 rejects (`5fa5740`).
+
+## Hardware-ready checkpoint (2026-10-04, re-confirmed)
+Done: everything not needing new hardware. Not started: C, re-baseline, A3 pin, Ollama change, hardware selection.
+Next step after your hardware decision and installation: `evals/bench/repin.mjs --out <R> --stage 1` (= `evals/REPIN.md`
+step 1; `--dry-run` shows every stage first), then the stages in order, then `evals/bench/cpreflight.mjs --repin <R>`.
 
 ## To resume in a new Claude chat
 Paste:

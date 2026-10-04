@@ -9,6 +9,18 @@ the pinned node 26.7.0 and refuses anything else). Write outputs under a new arc
 `C:/Users/cierra/hermes-bench-archive/repin-<date>/` (called `$R` below). Laptop on AC, nothing else using jcode or
 Ollama for the whole procedure (run `evals/bench/attrmon.ps1` alongside steps 11-12 to prove it).
 
+## Executable form (2026-10-04)
+`evals/bench/repin.mjs` runs these steps as ordered, fail-closed stages and keeps a record in `$R/repin-record.json`:
+`"$NODE_BIN" evals/bench/repin.mjs --out $R --dry-run` (read-only: what passes now), then `--stage 1`, `2`, `3`, `4`,
+`5-6 --apply`, `7-10`, `11`, `12`. A stage runs only after every earlier stage PASSed; a FAIL locks the record until
+`--restart` (= "restart from step 1" below); stages after 5-6 refuse if `baseline-env.json` changed since the pin
+commit. The manual parts stay manual (hardware, the step-3 model rebuild, the quant downloads and the quant decision);
+the stages verify their results. Step 13 is gated by `evals/bench/cpreflight.mjs --repin $R` (READY FOR C or BLOCKED).
+If step 12 picks a quant other than the pinned model: build it as `hermes-local-32k`, `--restart`, and run every stage
+again with `--quant <its quantization_level>` (stage 3 then accepts the different FROM blob, nothing else; this covers
+"repeat steps 3, 6, 7-10 and 11" with a single consistent record).
+The text below remains the specification; the script implements it.
+
 ## What changes and what does not
 
 | Item | Before (validated, CPU) | After the re-pin |
@@ -28,9 +40,12 @@ Disable Ollama automatic updates before the next Ollama restart (HANDOFF "Ollama
 
 1. **Hardware / OS state.** Record in `$R/env.txt`: CPU, RAM, GPU model + VRAM + driver
    (`nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv` for NVIDIA), Windows build, power source
-   (`powershell -Command "(Get-CimInstance Win32_Battery).BatteryStatus"`: 2 = AC), and the Ollama host settings
-   (`reg query HKCU\Environment | grep OLLAMA`; currently `OLLAMA_CONTEXT_LENGTH=32768 OLLAMA_FLASH_ATTENTION=1
-   OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_IGPU_ENABLE=1`). Any change to those settings is recorded here.
+   (`powershell -Command "(Get-CimInstance Win32_Battery).BatteryStatus"`: 2 = AC), and the Ollama server settings in
+   force (`"$NODE_BIN" evals/bench/ollamaenv.mjs --expect evals/bench/ollama-server-env.observed.json`: reads the running
+   server's own startup record; observed today: CONTEXT_LENGTH 32768, FLASH_ATTENTION true, KV_CACHE_TYPE q8_0,
+   NUM_PARALLEL 1, KEEP_ALIVE 30m, VULKAN true, IGPU_ENABLE 1). Any change to those settings is recorded here.
+   `evals/bench/hwprofile.ps1 -Out $R/hwprofile.json` records all of this (stage 1 runs both); compare with
+   `evals/perf/cpu-baseline-hwprofile.json`.
    PASS: GPU visible to the OS and the driver; machine on AC.
 
 2. **Ollama version.** `curl -s http://127.0.0.1:11434/api/version` -> `0.34.4`. If it is anything else, the
@@ -90,12 +105,15 @@ Disable Ollama automatic updates before the next Ollama restart (HANDOFF "Ollama
    x 2 = 434 samples >= 300). Compare `malformed_rate` (+ Wilson 95% interval), `median_ttfb_s` (cold cache: compare
    between quants only),
    `aggregate_decode_tok_s`; also check `ollama ps` = 100% GPU for each. Pick ONE quant for every C run and write the
-   choice + numbers into PLAN.yaml before C. If the pick is not the model pinned in step 6: build it as
+   choice + numbers into PLAN.yaml before C (`H_hardware.quant_decision: { quant, numbers }`, which stage 12 checks). If the pick is not the model pinned in step 6: build it as
    `hermes-local-32k`, then repeat steps 3 (digest), 6, 7-10 and 11 for it.
    PASS: decision recorded with its numbers; the pinned model is the chosen one and has passed 7-11.
 
-13. **Then C**: pre-register C in PLAN.yaml (tasks, reps, order, timeouts, decision rule; timeouts unchanged unless a
-   new value is decided from step-12 throughput and written down before the first C run), commit, then run C with
+13. **Then C**: pre-register C in PLAN.yaml under `C_rebaseline.preregistration` (tasks, reps, order, timeouts, decision
+   rule, quant; timeouts unchanged unless a
+   new value is decided from step-12 throughput and written down before the first C run), commit; then
+   `"$NODE_BIN" evals/bench/cpreflight.mjs --repin $R --warm` must print READY FOR C (otherwise it lists every blocker);
+   then run C with
    `reduced.sh`-style suites on AC, with attrmon.ps1 running.
    D is not part of this procedure; its definition is only PROPOSED (HANDOFF "Coverage") until you adopt it.
 

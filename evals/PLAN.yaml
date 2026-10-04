@@ -448,7 +448,9 @@ human_decisions:      # open; Hermes does not decide these (status.mjs --check r
   - "housekeeping: old sandboxes under %TEMP%/agent-evals (114 dirs) and the Ollama 0.35.1 staged installer (evals/AUDIT.md)"
 known_limitations:
   cpu_throughput: ["T08 + T13: TIMEOUT post-A2 (CPU/model throughput; progressing, not stalled)",
-                   "T03/T14/T17 (cycle 8, pre-A2, historical; as recorded): contained PASS(to) x3 = TIMEOUT; control T03 PASS, T14
+                   "T03/T14/T17 (cycle 8, pre-A2, historical; as recorded): contained PASS(to) x3 = TIMEOUT (T03: the record's elapsed-time
+                    flag; the wrapper's own line says the agent exited by itself at 901 s on a 900 s limit - record kept);
+                    control T03 PASS, T14
                     FAIL(to) = TIMEOUT, T17 PASS. Not run on the A2 pin (C tasks). CPU-throughput limitation",
                    "T05 control: 2/5 authoritative runs TIMEOUT at 1201 s (graded tests pass; recorded as TIMEOUT, not PASS)"]
   model_behaviour: ["model occasionally rewrites protected tests and misreports it (b5 T05 contained FAIL, on record)",
