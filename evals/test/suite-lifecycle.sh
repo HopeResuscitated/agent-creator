@@ -21,6 +21,11 @@ listening() { powershell.exe -NoProfile -Command "@(Get-NetTCPConnection -LocalA
 
 [ "$(listening)" = 0 ] || { echo "meter port 127.0.0.2:11439 busy before the test; not starting"; exit 9; }
 
+# 0. unsafe labels are refused before anything is deleted (ev-<label> is rm -rf'd)
+mkdir -p "$S/keep"; touch "$S/keep/precious"; LF=0
+for l in "../keep" "a/../../keep" "" ".." "-x"; do bash "$SUITE" --out "$S/o" "$l" contain --only T01 > /dev/null 2>&1; [ $? = 2 ] || LF=1; done
+if [ $LF = 0 ] && [ -e "$S/keep/precious" ]; then ok labels "5 unsafe labels -> exit 2, sibling dir intact"; else bad labels "an unsafe label was not refused"; fi
+
 # 1. refused run
 JCODE_BIN=$REFUSED bash "$SUITE" --out "$S/refused" R contain --only T01 > "$S/refused.log" 2>&1; rc=$?
 sleep 2; L=$(leftovers | tr -d ' ')

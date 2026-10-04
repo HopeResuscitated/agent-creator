@@ -21,6 +21,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/node.sh" || exit 3
 [ "${1:-}" = "--out" ] || { echo "usage: suite.sh --out <dir> <label> <contain|control> [run.ts args...]" >&2; exit 2; }
 OUT=$2; LABEL=$3; MODE=$4; shift 4
 case "$MODE" in contain|control) ;; *) echo "mode must be contain or control" >&2; exit 2 ;; esac
+# The label names <out>/ev-<label>, which is deleted and recreated below: allow only a plain name.
+[[ -n "$OUT" && "$LABEL" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && "$LABEL" != *..* ]] || { echo "label must match [A-Za-z0-9][A-Za-z0-9._-]* without '..', and --out must be non-empty" >&2; exit 2; }
 BENCH=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$BENCH/../.." && pwd)
 WBENCH=$(cygpath -m "$BENCH"); WREPO=$(cygpath -m "$REPO")
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); WOUT=$(cygpath -m "$OUT")
