@@ -6,7 +6,7 @@ branch: cierra-wip-2026-09-29      # PUSH STATE UNRESOLVED: origin has this bran
                                    # session) although this file said "local only, never pushed". Local is ahead of
                                    # origin by the commits under harness_commits (15 at the 2026-10-03 pre-C docs commit).
                                    # Hermes has not pushed. jcode-evalpin has no upstream configured; also never pushed.
-head: f26e6ff                      # last harness-code commit 2026-10-04 (run id uniqueness); see harness_commits
+head: 9c9bf85                      # last harness-code commit 2026-10-04 (second pre-hardware audit); see harness_commits
 updated: 2026-10-04
 
 pins:                              # the evaluation contract; run.ts refuses (exit 2) on any mismatch
@@ -60,6 +60,15 @@ harness_commits:                   # since 6ca495a (the last commit on origin)
   8223379: "~/.jcode guard in a3offline and re-pin stage 4"
   8336189: "suite.sh: an Ollama restart during the run -> exit 11 (not evidence)"
   f26e6ff: "run.ts never reuses a run id (same-minute runs overwrote results + deleted sandboxes); bench/README"
+  8e7ec62: "missing termination evidence is AGENT_STATUS_UNKNOWN (never graded); analyze.mjs counts legacy timed-out passes as TIMEOUT"
+  83a0fdc: "tripclass/watch fuzz fixes: unparsed TRIP lines flagged, warm-up/probe/pin-query attribution bounded, mapped loopback, sample failures"
+  cbb730e: "repin.mjs record hardening (no in-place re-run, --apply refusal, damaged record, restart archives outputs, artifact hashes); cpreflight fixtures"
+  87f72ad: "a3stress.mjs (A2/A3 edit-string stress, candidate evidence only)"
+  576b0bd: "hwreport.mjs + evals/perf/HARDWARE-REPORT.md (baseline vs future, NOT MEASURED never guessed)"
+  eb4cb4f: "security review: atomic run-id claim, METER_LISTEN/UPSTREAM validated, marker-guarded test scratch dirs"
+  2cd9a04: "evals/test/suite-midrun.sh + fakeupstream.mjs (real contained suite, no inference)"
+  f933a4e: "lint: taskkill /F in bash; tools/probe.sh fix; suite-midrun kills the meter with Stop-Process"
+  9c9bf85: "suite.sh: TRIP needing review -> ev-<label>/TRIP-NEEDS-REVIEW + last line (exit code policy unchanged)"
 jcode_commits:                     # C:/Users/cierra/jcode-evalpin, local only
   1fbb2e1b4: "XML tool-call recovery (previous pin)"
   7ed7403f8: "A2: retry an HTTP 200 stream that ends without finish_reason (cap 2, only if this response emitted no tool call) - branch eval-pin-74577fe83, PINNED"
@@ -98,10 +107,14 @@ status_contract:       # run-in-job.ps1 exit -> scoring
   suite_sh_exit_10: "repo fingerprint or ~/.jcode changed during the run - not evidence"
   suite_sh_exit_11: "the Ollama server restarted during the run (its start time changed) - not evidence"
   suite_sh_exit_130: "interrupted (Ctrl+C / TERM / HUP); meter, watch, keepawake stopped; ev-<label>/INTERRUPTED - not evidence"
-  suite_sh_exit_1_2: "1 meter could not start or its port was already in use; 2 usage / unsafe label - nothing ran"
+  suite_sh_exit_1_2: "1 meter could not start or its port was already in use; 2 usage / unsafe label / METER_LISTEN or METER_UPSTREAM
+                     not 127.x.x.x:<port> - nothing ran"
+  suite_trip_review: "exit code unchanged (0), but a VIOLATION/UNATTRIBUTED TRIP writes ev-<label>/TRIP-NEEDS-REVIEW and the last line
+                      reads SUITE-DONE (TRIP NEEDS REVIEW: ...) (9c9bf85); whether that should fail the suite is a human decision"
   outcome_classes: "run.ts (evals/outcome.ts), first match: SETUP_FAILED | UNSAFE_PROCESS_TREE | AGENT_STATUS_UNKNOWN (not graded) >
                     ENV_RESTORE_FAILED (not graded) > ENV_CONTAMINATED > TIMEOUT (grader verdict kept as graderPass, never PASS) >
-                    PASS | FAIL. Timeout = the wrapper's own 'timedOut=' line; elapsed time only when that line is missing.
+                    PASS | FAIL. Timeout = the wrapper's own 'timedOut=' line; a jcode run whose wrapper exited 0 without that line is
+                    AGENT_STATUS_UNKNOWN (8e7ec62; elapsed time is only a fallback for non-jcode agents).
                     results.json from before 326ba4e recorded pass=true for timed-out runs; documents already counted those
                     as TIMEOUT, and the files are not rewritten"
 
@@ -323,7 +336,11 @@ phases:
                 rejected tail, HTTP 500 once/always, tool then EOF, partial text not in history, 2 ordered tool calls, duplicate ids,
                 truncated JSON args, unknown tool, failed edit, args split across deltas, edits E1-E4): IDENTICAL behaviour except
                 E2/E3 (as designed), all per-build invariants hold, ~/.jcode unchanged. Observed on BOTH: a nonexistent tool name ends
-                the run (exit 1) instead of an error result. editstring both ways PASS again. Offline evidence only"]
+                the run (exit 1) instead of an error result. editstring both ways PASS again. Offline evidence only",
+               "2026-10-04 evals/bench/a3stress.mjs: 16 edit-path stress scenarios on REAL A2 and A3 (malformed strings, multi-edit,
+                mixed forms, edit+tool both orders, rejected+retry, EOF retry, duplicate ids, 500, discarded partial, outside-path
+                canary): A3STRESS PASS; no duplicate execution; A2 == A3 wherever the string form is not involved; the string form
+                reaches no path the array form cannot. Archive a3-candidate-offline-2026-10-04. Candidate evidence only"]
     required_after_hardware: ["REPIN.md step 4: identity (or rebuild + unit tool::edit 20/20) + editstring both ways", "step 6: pin commit alone",
                "steps 7-10: gates.sh GATES PASS with the A2 and 1fbb2e1b4 binaries refused", "step 11: T01 x4 one fingerprint, != df1332d7...",
                "first real tasks: C"]
@@ -445,7 +462,10 @@ human_decisions:      # open; Hermes does not decide these (status.mjs --check r
   - "D: adopt, change or reject the D_gate.proposal (needed before D, not before C)"
   - "push: whether/where to push cierra-wip-2026-09-29 and the jcode-evalpin branches"
   - "pin the observed Ollama server settings (KV q8_0, flash attention, ...) or keep them observed-only"
-  - "housekeeping: old sandboxes under %TEMP%/agent-evals (114 dirs) and the Ollama 0.35.1 staged installer (evals/AUDIT.md)"
+  - "housekeeping: old sandboxes under %TEMP%/agent-evals (131 dirs, ~36 GiB; re-analysis reads them) and the Ollama 0.35.1 staged
+     installer (evals/AUDIT.md 21.5: keep both for now)"
+  - "suite policy: should a TRIP that needs review (VIOLATION/UNATTRIBUTED) fail the suite with its own exit code, instead of the marker"
+  - "C pre-registration: how SETUP_FAILED tasks (excluded from the score) are handled (re-run or count)"
 known_limitations:
   cpu_throughput: ["T08 + T13: TIMEOUT post-A2 (CPU/model throughput; progressing, not stalled)",
                    "T03/T14/T17 (cycle 8, pre-A2, historical; as recorded): contained PASS(to) x3 = TIMEOUT (T03: the record's elapsed-time

@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const JREPO = 'C:/Users/cierra/jcode-evalpin';
-const DOCS = ['PLAN.yaml', 'HANDOFF.md', 'REPIN.md', 'README.md', 'RESUME.md', 'INVALIDATIONS.md', 'AUDIT.md'].map((f) => path.join(REPO, 'evals', f)).filter((f) => fs.existsSync(f));
+const DOCS = ['PLAN.yaml', 'HANDOFF.md', 'REPIN.md', 'README.md', 'RESUME.md', 'INVALIDATIONS.md', 'AUDIT.md', 'RUNBOOK-POST-HARDWARE.md'].map((f) => path.join(REPO, 'evals', f)).filter((f) => fs.existsSync(f));
 const HIST = /historical|removed|deleted|superseded|\bwas\b|\bold\b|archive|formerly|renamed|no longer|pre-|before /i;
 const gitOk = (repo, h) => { try { execFileSync('git', ['-C', repo, 'cat-file', '-e', `${h}^{commit}`], { stdio: 'ignore' }); return true; } catch { return false; } };
 const expandEnv = (p) => p.replace(/%LOCALAPPDATA%/gi, process.env.LOCALAPPDATA ?? '%LOCALAPPDATA%').replace(/%USERPROFILE%/gi, process.env.USERPROFILE ?? '%USERPROFILE%');

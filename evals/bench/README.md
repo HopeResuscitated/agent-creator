@@ -22,7 +22,11 @@ Benchmark runs
                                                                    ~/.jcode changed; exit 11 if the Ollama server
                                                                    restarted; exit 130 on Ctrl+C/TERM/HUP (meter, watch,
                                                                    keepawake stopped); exit 1 if the meter port is busy;
-                                                                   exit 2 on an unsafe label. Any non-zero = not evidence
+                                                                   exit 2 on an unsafe label or a METER_LISTEN/UPSTREAM
+                                                                   that is not 127.x.x.x:<port>. Any non-zero = not
+                                                                   evidence. A TRIP needing review keeps exit 0 but
+                                                                   writes ev-<label>/TRIP-NEEDS-REVIEW and ends with
+                                                                   "SUITE-DONE (TRIP NEEDS REVIEW: ...)"
   reduced.sh --out <dir> [--tasks ..] [--ref f] [--expect-head sha] <label>:<mode> ...
                                                                    gated sequence of suite.sh runs; with --ref, stops
                                                                    when a task's effective-config fingerprint differs,
@@ -88,7 +92,12 @@ Gates and re-pin (see evals/REPIN.md for the full sequence)
                                   jcode.exe and Ollama client classified; EXTERNAL-ACTIVITY lines = contaminated run.
 
 Offline tests: "$NODE_BIN" --test "evals/test/*.test.mjs"  and  bash evals/test/lint.sh  (seconds; no model). Real-process tests:
-bash evals/test/suite-lifecycle.sh <scratch> <a non-pinned jcode.exe>, bash evals/test/watch-smoke.sh <scratch>.
+bash evals/test/suite-lifecycle.sh <scratch> <a non-pinned jcode.exe>, bash evals/test/watch-smoke.sh <scratch>,
+bash evals/test/suite-midrun.sh <scratch> [model-fail|meter-dies|trip-review|all] (real contained suite against
+evals/test/fakeupstream.mjs; no inference; do not edit the repo meanwhile). Scratch dirs are only deleted if empty or
+marked by a previous test (evals/test/scratch.sh).
+Other tools (2026-10-04): a3stress.mjs --a <A2> --b <A3> (A3 edit-string stress, candidate evidence), hwreport.mjs
+(baseline vs future hardware table, evals/perf/HARDWARE-REPORT.md). Post-hardware sequence: evals/RUNBOOK-POST-HARDWARE.md.
 
 Rebuilt from cycle-6/7 notes (originals pruned with scratch): watch.ps1, fp.mjs, fpcmp.mjs, evfp.mjs, analyze.mjs,
 classify.mjs. analyze/classify reproduce the archived cycle-6 C1, C2-R output byte-for-byte; for D1-R/D2-R

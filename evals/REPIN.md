@@ -19,7 +19,8 @@ the stages verify their results. Step 13 is gated by `evals/bench/cpreflight.mjs
 If step 12 picks a quant other than the pinned model: build it as `hermes-local-32k`, `--restart`, and run every stage
 again with `--quant <its quantization_level>` (stage 3 then accepts the different FROM blob, nothing else; this covers
 "repeat steps 3, 6, 7-10 and 11" with a single consistent record).
-The text below remains the specification; the script implements it.
+The text below remains the specification; the script implements it. The exact post-hardware command sequence (with
+the expected output of each step, the manual parts and the decisions) is `evals/RUNBOOK-POST-HARDWARE.md`.
 
 ## What changes and what does not
 

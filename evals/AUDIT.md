@@ -1,4 +1,4 @@
-# Harness audit (2026-10-04, post hardware-ready checkpoint)
+# Harness audit (2026-10-04, post hardware-ready checkpoint; second pass in section 21)
 
 Scope: everything in `evals/` that can affect evidence, done without hardware, without a re-pin and without changing any
 acceptance criterion. Every defect below was fixed in its own commit with a test; nothing in the evidence archive or in
@@ -16,10 +16,10 @@ acceptance criterion. Every defect below was fixed in its own commit with a test
 | Monitoring | `bench/watch.ps1`, `bench/tripclass.mjs`, `bench/attrmon.ps1`, `bench/keepawake.ps1`, `bench/sleepcheck.ps1` |
 | Integrity | `bench/fp.mjs` / `fpcmp.mjs` (repo), `bench/evfp.mjs` (~/.jcode) |
 | Security / byte tests | `bench/secprobe.*`, `bench/killprobe.mjs`, `bench/streamprobe.*`, `bench/relaytest/*` |
-| Analysis | `bench/analyze.mjs`, `classify.mjs`, `reanalyze.mjs`, `coverage.mjs`, `perfreport.mjs` |
-| Re-pin / C | `bench/gates.sh`, `t01x4.ps1`, `editstring.mjs`, `a3offline.mjs` + `fakeprov.mjs`, `quanttrial.mjs`, `hwprofile.ps1`, `perfsample.ps1`, `repin.mjs`, `cpreflight.mjs`, `status.mjs` |
-| Offline tests | `test/*.test.mjs` (69 tests, seconds), `test/lint.sh`, `test/docrefs.mjs`; real-process: `test/suite-lifecycle.sh`, `test/watch-smoke.sh` |
-| Records | `PLAN.yaml`, `HANDOFF.md`, `REPIN.md`, `INVALIDATIONS.md`, `README.md`, `RESUME.md`, `perf/` (CPU baseline), `baseline-env.json` (pins) |
+| Analysis | `bench/analyze.mjs`, `classify.mjs`, `reanalyze.mjs`, `coverage.mjs`, `perfreport.mjs`, `hwreport.mjs` |
+| Re-pin / C | `bench/gates.sh`, `t01x4.ps1`, `editstring.mjs`, `a3offline.mjs` + `a3stress.mjs` + `fakeprov.mjs`, `quanttrial.mjs`, `hwprofile.ps1`, `perfsample.ps1`, `repin.mjs`, `cpreflight.mjs`, `status.mjs` |
+| Offline tests | `test/*.test.mjs` (158 tests, seconds), `test/lint.sh`, `test/docrefs.mjs`; real-process: `test/suite-lifecycle.sh` (6 cases), `test/watch-smoke.sh`, `test/suite-midrun.sh` + `fakeupstream.mjs` (real contained suite vs a stand-in upstream); helper `test/scratch.sh` |
+| Records | `PLAN.yaml`, `HANDOFF.md`, `REPIN.md`, `INVALIDATIONS.md`, `README.md`, `RESUME.md`, `RUNBOOK-POST-HARDWARE.md`, `perf/` (CPU baseline, HARDWARE-REPORT.md), `baseline-env.json` (pins) |
 
 Findings that are not defects (kept, nothing deleted):
 - No TODO/FIXME in harness code (the `TODO` hits are task fixture content).
@@ -63,12 +63,14 @@ chosen by a fixed precedence (11, 7, 8, 10) after all evidence files are written
 All paths now go through `outcome.ts` (`evals/test/outcome.test.mjs`, 16 tests):
 - timeout -> pass: **was possible** (22 historical results.json entries have `pass: true, timedOut: true`; documents
   already called them TIMEOUT; files not rewritten). Now TIMEOUT; the grader verdict is kept as `graderPass`.
-- timeout source: the wrapper's `agent exit=... timedOut=...` line, not elapsed time (elapsed is the fallback when
-  the line is missing). Of 202 historical results with a wrapper line, 1 disagrees with the recorded flag: cycle-8 T03
+- timeout source: the wrapper's `agent exit=... timedOut=...` line, not elapsed time (elapsed time only for non-jcode
+  agents; a jcode run without the line is AGENT_STATUS_UNKNOWN since `8e7ec62`). Of 202 historical results with a wrapper line, 1 disagrees with the recorded flag: cycle-8 T03
   contained, 901 s on a 900 s limit, recorded timedOut, wrapper "agent exit=0 timedOut=False". The record is kept and
   documented as TIMEOUT; it is pre-A2 historical evidence.
-- missing evidence -> pass: not possible; a missing wrapper note uses the conservative elapsed fallback; an unknown env
-  string classifies as UNSAFE_PROCESS_TREE.
+- missing evidence -> pass: **was possible until `8e7ec62`**: a jcode run whose wrapper exited 0 without its
+  termination line fell back to elapsed time and could be graded. Now AGENT_STATUS_UNKNOWN (not graded); none of the
+  202 historical jcode CLEAN/CONTAMINATED results lacks the line. An unknown env string classifies as
+  UNSAFE_PROCESS_TREE. Fixtures: `evals/test/timeout-integrity.test.mjs` (section 21.2).
 - contaminated -> authoritative: ENV_* never pass; contaminated suite runs are not evidence (exit 10/11/6/7/8).
 - process crash -> success: any wrapper status other than 0/4/5, spawn error or outer timeout -> UNSAFE_PROCESS_TREE.
 - partial response -> complete: jcode retries incomplete streams (A2); discarded text never re-sent (a3offline S6).
@@ -100,7 +102,7 @@ unchanged. `repin.mjs` implements REPIN.md (ordered, fail-closed, record, `--dry
 
 | Event | Behaviour now | Resumable? |
 |---|---|---|
-| Ctrl+C / terminal closed (TERM/HUP) | suite exits 130, stops meter/watch/keepawake, writes INTERRUPTED; run.ts's Job Object kills the agent tree with the wrapper | rerun the suite; no partial results.json (written at the end) |
+| Ctrl+C / terminal closed (TERM/HUP) | suite exits 130, stops meter/watch/keepawake, writes INTERRUPTED; run.ts's Job Object kills the agent tree with the wrapper. A TERM sent to suite.sh's bash process alone (not its process group) is handled only when the foreground run.ts returns: measured 910 s (T01's 15-min timeout), then exit 130, no surviving process. Ctrl+C in the terminal signals the whole group and stops at once | rerun the suite; no partial results.json (written at the end) |
 | jcode dies | wrapper exit code recorded; task graded on files | per-task result stands |
 | Ollama dies / restarts | **was silent**; now exit 11 | rerun |
 | meter dies | exit 6 | rerun |
@@ -165,7 +167,111 @@ Timestamps: watch.ps1 (`Get-Date -Format s`, local) and `date -Iseconds` (offset
 | jcode-evalpin | `eval-pin-74577fe83` (A2), `eval-pin-a3-candidate` (A3); clean; origin = upstream jcode | keep both until the re-pin is done |
 | binaries | `jcode-evalpin-bin` (superseded 1fbb2e1b4; used as a refusal probe by gates.sh), `-a2-bin`, `-a3cand-bin`, `C:\Users\cierra\jcode.exe` (unrelated build) | keep: gates.sh needs the superseded binary |
 | `evals/results/` | ignored by git; 72 jcode run dirs (36 archive-linked) + reference/none runs incl. 2026-10-04 smoke runs | the archive holds the evidence; local-only dirs are not evidence |
-| `%TEMP%\agent-evals` | 114 sandbox roots (2026-09-28 on) | may be pruned after C if the archive is complete; not now |
+| `%TEMP%\agent-evals` | 131 sandbox roots (2026-09-28 on; 13 from this audit's real-process tests), ~36 GiB | keep; see 21.5 (re-analysis reads them) |
 | `%TEMP%\editstring-*` etc. | small test leftovers | safe to delete any time |
 | evidence archive | `C:\Users\cierra\hermes-bench-archive` 1.4 GB | keep |
 | Ollama 0.35.1 installer staged | `%LOCALAPPDATA%\Ollama\updates_v2\...` | leave until you decide on auto-update; deleting does not stop a future download |
+## 21. Second-pass audit (2026-10-04, before the hardware change)
+
+### 21.1 The 20 commits since `bfad054`, re-reviewed by tracing (not by their tests)
+| Commit | Intent | Tests | Finding on re-review | Affects evaluation semantics |
+|---|---|---|---|---|
+| `326ba4e` outcome.ts | TIMEOUT never PASS | outcome.test | **gap**: a jcode run whose wrapper exited 0 without its `agent exit=... timedOut=...` line fell back to elapsed time and could be graded PASS; **gap**: analyze.mjs totals/REGRESSION/IMPROVED used `r.pass`, so legacy timed-out passes still counted as PASS (2026-09-28 baseline printed 10/18, 7/18 in time). Both fixed (`8e7ec62`) | yes (stricter; no recorded result changes: all 202 historical jcode CLEAN/CONTAMINATED results carry a valid line) |
+| `ef0c8df` suite exit codes, interrupt | failures not hidden by tee; cleanup on INT/TERM/HUP | suite-lifecycle | correct; **observed**: a TERM sent to suite.sh's bash alone is handled only after the foreground run.ts returns (bash defers traps while waiting), i.e. up to the task timeout (measured: 910 s, exit 130, no survivors). Ctrl+C in a terminal signals the whole process group and stops at once. Documented, not changed | no |
+| `542d6c8` watch/tripclass | attribute every TRIP | tripclass.test, watch-smoke | **gaps** (fixed `83a0fdc`): unparsable TRIP lines silently dropped; warm-up curl attributed by command line at any time; streamprobe attributed outside probe dirs; run.ts pin query attributed for a sandbox copy; IPv4-mapped loopback; Ollama clients dialing an address other than 127.0.0.1 not watched; a failed sample looked clean. Archive re-check unchanged: 1,686 TRIPs, 0 VIOLATION, 0 UNATTRIBUTED | monitoring only |
+| `e536696` lint.sh | syntax + portability | itself | ok | no |
+| `dc281ad` unsafe labels | rm -rf stays inside `<out>` | suite-lifecycle | ok; same class of bug found in the test scripts' scratch dirs (fixed `eb4cb4f`) | no |
+| `75c6faa` Ollama settings | recorded, not pinned | ollamaenv.test | ok; classification below (21.4) | no |
+| `1fc6f7f` a3offline + telemetry opt-out | A2 vs A3 offline | fakeprov.test | ok; extended by a3stress (21.3) | no (candidate evidence) |
+| `3c80c51` docrefs | docs vs tree | docrefs.test | ok; now also checks RUNBOOK-POST-HARDWARE.md | no |
+| `0ff6333` hwprofile/perfreport | descriptive perf | perfreport.test | ok; hwreport.mjs added (21.5) | no |
+| `3fa1a60` quanttrial | stream_error, warm median | quanttrial.test | ok | no (post-hardware tool) |
+| `e2b60d0` repin/cpreflight | executable re-pin, fail-closed C gate | repin.test | **gaps** (fixed `cbb730e`): recorded stages could be re-run in place (evidence overwritten); 5-6 without --apply locked the record; a damaged record was replaced by an empty one; --restart left stage outputs to be overwritten; stage 12 did not compare the live digest with the pin; no artifact hashes | no (procedure only) |
+| `630f57b` coverage | matrix | coverage.test | ok | no |
+| `8223379` ~/.jcode guard | fake-provider runs leave ~/.jcode alone | a3offline/a3stress output | ok (656 entries, tree 03835244... after every run today) | no |
+| `8336189` Ollama restart -> exit 11 | not evidence | suite-lifecycle | ok; unreadable start time also exits 11 (fail closed) | no |
+| `f26e6ff` run id | no reuse | outcome.test | **race**: check ran before the pin gates; claim now atomic (`eb4cb4f`); 3 concurrent starts -> 3 ids | no |
+| `5fa5740` cpreflight test glob | node 26 | repin.test | ok | no |
+| `c77bc0f`, `e64d2f1` docs | sync | docrefs, status | one stale statement corrected here (21.2: "missing evidence -> pass not possible" was wrong until `8e7ec62`) | no |
+| `974fff7` status.mjs | derived status | status.test | ok | no |
+| `ac4a90b` quant switch | stage 3 --quant | repin.test | ok; stage 3 without --quant now also checks the quant is unchanged | no |
+
+### 21.2 Timeout/PASS integrity (deep audit)
+`evals/test/timeout-integrity.test.mjs` replays run.ts's per-task decision (wrapper status -> environment ->
+termination evidence -> grading -> timeout -> class) with the real exported functions: 24 named fixtures (timeout +
+grader PASS, timeout flag with exit 0, exit=timeout with timedOut=False, killed tree not proven dead, wrapper crash,
+outer spawn timeout, result lost, setup failed, termination line missing at short and long elapsed time, agent text
+imitating the wrapper line, forged line before/after the real one, contaminated/restore-failed env, unknown env
+string, crash exit in time) and an exhaustive sweep of 1,296 combinations. PASS is possible only for: wrapper exit 0,
+no spawn error, environment CLEAN, a valid termination line showing an in-time end, grader PASS. A test pins the
+order of these calls in run.ts. Recorded design kept: an agent that exits non-zero in time with a correct tree is
+PASS (graded on files; `agentExit` is in results.json). Historical results: read only; `countsAsPass()` makes every
+reader treat the 22 legacy `pass: true, timedOut: true` entries as TIMEOUT.
+
+### 21.3 A3 stress (candidate evidence only)
+`a3stress.mjs`, 16 scenarios x real A2 and A3 (archive `a3-candidate-offline-2026-10-04/`): A3STRESS PASS. No call id
+answered twice, no edit applied twice, discarded partial never re-sent, A2 == A3 wherever the string form is not
+involved. Without the containment wrapper both builds edit an absolute path outside the sandbox through the native
+array form; A3's string form reaches exactly the same, nothing more (A2 rejects the string form). Containment of real
+runs is gates.sh's job at the re-pin.
+
+### 21.4 Ollama server settings: what affects evaluation
+| Setting | Class | Effect / evidence |
+|---|---|---|
+| Ollama version, model digest (weights, quant, template, num_ctx 32768, temperature 0.15, top_k 20, top_p 0.8, repeat_penalty 1.05, num_gpu 0) | PINNED | baseline-env.json; run.ts refuses a mismatch |
+| OLLAMA_KV_CACHE_TYPE q8_0, OLLAMA_FLASH_ATTENTION true | RECORDED ONLY | change numerics (quantized cache) and memory; can change model output |
+| OLLAMA_NUM_PARALLEL 1 | RECORDED ONLY | slots per model (memory per slot, concurrency); the harness sends one request at a time |
+| OLLAMA_CONTEXT_LENGTH 32768 | RECORDED ONLY | server default; the model's own num_ctx 32768 (in the digest) is what applies to hermes-local-32k |
+| OLLAMA_SCHED_SPREAD, OLLAMA_GPU_OVERHEAD, OLLAMA_LLM_LIBRARY, OLLAMA_VULKAN, OLLAMA_IGPU_ENABLE, CUDA/HIP/ROCR/GGML_VK visible devices, GPU_DEVICE_ORDINAL, HSA_OVERRIDE_GFX_VERSION | HARDWARE-DEPENDENT | decide which device/library runs the model; expected to change with the hardware |
+| OLLAMA_KEEP_ALIVE 30m, OLLAMA_MAX_LOADED_MODELS 0, OLLAMA_LOAD_TIMEOUT 5m | OPERATIONAL | cold loads (first-token latency), load failures; not model semantics |
+| auto-update, server start time | OPERATIONAL | cpreflight requires auto-update OFF; suite.sh exit 11 on a restart |
+RECORDED ONLY becomes binding for C without a pin change: re-pin stage 1 records the settings and cpreflight refuses C
+if the live settings differ. Pinning them in baseline-env.json remains a decision (HANDOFF "Open decisions").
+Restart with auto-update ON: the app installs the staged 0.35.1 at the restart (or at its hourly check), so
+`/api/version` becomes 0.35.1, run.ts refuses every run (suite exit 8), re-pin stage 2 and cpreflight fail; a restart
+during a suite also makes that run not evidence (exit 11). A restart also re-reads the user's environment, so any
+changed OLLAMA_* variable silently changes the RECORDED ONLY values (cpreflight catches it before C).
+
+### 21.5 Cleanup safety (nothing deleted)
+| Item | Facts | Safe to delete? | Value |
+|---|---|---|---|
+| `%TEMP%\agent-evals` | 131 roots (2026-09-28 .. 2026-10-04; 13 of them from this audit's real-process tests, which are not evidence); 35.7 GiB measured at 121 roots; 41 are named in archived logs (all authoritative runs among them); `analyze.mjs` reads `<task>.agent-home` broker/agent logs from them by default and defaults `--base` to `2026-09-28-16-05_...`, which is not archived; the archive keeps analysis outputs, not every raw agent-home log | **no** for archive-named roots and the analyze.mjs base (re-analysis needs them); dev/test-only roots could go, but the split needs a reviewed list first | low: C: has 199.8 GiB free |
+| staged Ollama 0.35.1 installer (`%LOCALAPPDATA%\Ollama\updates_v2`, 1.47 GiB) | not referenced by any evidence | yes, but deleting it does not disable auto-update (the app downloads it again while auto-update is ON) | low; the real protection is turning auto-update off |
+Recommendation: keep both until C is complete and archived; then prune dev/test sandbox roots from a reviewed list.
+
+### 21.6 Static security review (files changed since `bfad054`)
+Fixed (`eb4cb4f`): run-id race (atomic claim), METER_LISTEN/METER_UPSTREAM interpolated into PowerShell
+unvalidated (now 127.x.x.x:port only), test scripts' unconditional `rm -rf <arg>` (marker-guarded scratch dirs).
+Reviewed without change: constant-string `shell: true` calls in run.ts; argument-array spawns in repin/cpreflight;
+rmSync only on own mkdtemp dirs; suite/probe `rm -rf` limited to `<out>/ev-<validated label>`; repin --out paths are
+written only inside `<R>`. Recorded limitation: the eval/external tree split trusts the `--provider-profile evalbroker`
+argument (an imitating manual run would be attributed as the eval agent in control mode; contained egress is a
+VIOLATION regardless).
+
+### 21.7 Failure propagation (task -> jcode -> run.ts -> run-in-job.ps1 -> suite.sh -> grading -> reporting)
+| Failure | Where it lands | Suite exit | Verified by |
+|---|---|---|---|
+| refused run (pin gate) | run.ts exit 2 | 8 | suite-lifecycle `refused` |
+| timeout | wrapper `exit=timeout timedOut=True` -> TIMEOUT, never PASS | 0 (a result) | timeout-integrity fixtures |
+| model failure (wrong / no answer) | task FAIL | 0 (a result) | suite-midrun `model-fail` (real suite) |
+| jcode crash | wrapper note `agent exit=<code>`; graded on files (design) | 0 | fixtures |
+| wrapper/tree failure, result lost, setup failed | UNSAFE_PROCESS_TREE / AGENT_STATUS_UNKNOWN (fail) / SETUP_FAILED (excluded, listed "NOT RUN") | 0 | fixtures; PLAN status_contract |
+| meter death | agent retries fail, task FAIL; run not evidence | 6 | suite-midrun `meter-dies`: exit 6 two minutes after the kill |
+| broker failure | wrapper setup failure -> SETUP_FAILED | 0 | fixtures |
+| security failure (TRIP VIOLATION / UNATTRIBUTED) | tripclass flags it | 0, but `ev-<label>/TRIP-NEEDS-REVIEW` + last line `SUITE-DONE (TRIP NEEDS REVIEW ...)` (`9c9bf85`) | suite-midrun `trip-review` |
+| Ollama restart | start time differs | 11 | suite-lifecycle |
+| repo or ~/.jcode changed | fingerprint differs | 10 | observed live: edits made during a test run gave exit 10 |
+| interruption | trap | 130 | suite-lifecycle; TERM measured (section 7) |
+| cleanup failure (env restore) | ENV_RESTORE_FAILED (fail) | 0 | fixtures |
+Cleanup never replaces the exit code: suite.sh chooses it after every check with fixed precedence 6, 11, 7, 8, 10;
+the interrupt trap exits 130 itself. Two outcomes stay exit 0 by the existing contract and are decisions, not bugs:
+SETUP_FAILED tasks are excluded from the score (C's pre-registration should say whether they are re-run), and a TRIP
+needing review does not change the exit code (policy: "not clean evidence until explained").
+
+### 21.8 Process lifecycle (real processes, no inference)
+`evals/test/suite-midrun.sh` runs the real contained suite (A2 jcode, wrapper, broker, meter, watchdog, keep-awake)
+against `fakeupstream.mjs`; `suite-lifecycle.sh` (now 6 cases incl. malformed meter addresses) and `watch-smoke.sh`
+cover refusal, busy port, Ollama restart, Ctrl+C, labels. Every case ends with no surviving meter/watch/keepawake/
+wrapper/run.ts/jcode process. Run ids: 3 concurrent same-minute starts got 3 ids. Found while doing this: `taskkill
+//F` (usual git-bash escape) does not work in Hermes' shell and plain `/F` does not work in git-bash; lint now flags
+it (`f933a4e`).

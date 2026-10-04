@@ -1,13 +1,14 @@
 # Handoff: pick up here
 
-Updated 2026-10-04 (HARDWARE-READY CHECKPOINT, re-confirmed after the post-checkpoint hardening: all non-hardware work
+Updated 2026-10-04 (HARDWARE-READY CHECKPOINT, re-confirmed after the second pre-hardware audit: all non-hardware work
 done; C not started). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
-`evals/REPIN.md`. Evidence: `C:\Users\cierra\hermes-bench-archive` (cycle9 = A2, Phase B, A3 candidate, final
+`evals/REPIN.md`; exact post-hardware sequence: `evals/RUNBOOK-POST-HARDWARE.md`. Evidence: `C:\Users\cierra\hermes-bench-archive` (cycle9 = A2, Phase B, A3 candidate, final
 regression, pre-C tooling checks).
 
 ## Where we are
-Containment is proven (all invariants hold; decision rule passed). Last harness-code commit `f26e6ff` (2026-10-04
-hardening: classification, failure propagation, monitoring, re-pin automation; see "Post-checkpoint hardening"). No
+Containment is proven (all invariants hold; decision rule passed). Last harness-code commit `9c9bf85` (2026-10-04
+hardening and second audit: classification, failure propagation, monitoring, re-pin automation; see "Post-checkpoint
+hardening" and "Second pre-hardware audit"). No
 evidence was produced by the new code: every authoritative result predates it and is unchanged. All work is local (branch `cierra-wip-2026-09-29`); nothing has been pushed.
 **C has not started and must not start before the hardware decision.**
 
@@ -113,6 +114,8 @@ Runs before `3f9df6c` are not fingerprint-comparable (the jcode hash changed on 
 | `repin.mjs` (2026-10-04) | REPIN.md steps 1-12 as ordered, fail-closed stages with a record; `--dry-run` read-only | dry run: NOT READY as expected (no discrete GPU, CPU model, no quant decision); A3 identity checks pass |
 | `cpreflight.mjs` (2026-10-04) | READY FOR C or BLOCKED with every reason | BLOCKED, 10 reasons (all hardware / re-pin / pre-registration / auto-update) |
 | `a3offline.mjs` + `fakeprov.mjs` | A2 vs A3 offline behaviour (above) | PASS |
+| `a3stress.mjs` (2026-10-04) | 16 edit-path stress scenarios, real A2 and A3 (candidate evidence only) | A3STRESS PASS; archive `a3-candidate-offline-2026-10-04` |
+| `hwreport.mjs` (2026-10-04) | CURRENT MEASURED BASELINE vs FUTURE HARDWARE MEASUREMENTS table | `evals/perf/HARDWARE-REPORT.md`; future column NOT MEASURED |
 | `hwprofile.ps1`, `perfreport.mjs`, `perfsample.ps1` | hardware profile; descriptive CPU-vs-GPU performance report (no thresholds) | CPU baseline recorded in `evals/perf/` |
 | `ollamaenv.mjs` | running Ollama server's settings (observed, not pinned) and start time | matches `ollama-server-env.observed.json` |
 | `tripclass.mjs` | attributes every watchdog TRIP line | archived b6 + a2val3 logs: 1,686 TRIP lines, all attributed, 0 VIOLATION |
@@ -341,7 +344,7 @@ Accept rule: no T05 failure ends on an unrecovered incomplete stream; retries bo
 | Final regression (2026-10-03 13:17) | PASS (see "Final regression") |
 | gates.sh (2026-10-03 evening) | 15/15 PASS |
 | C re-baseline | NOT RUN, blocked on H |
-| Offline harness tests (2026-10-04) | `node --test "evals/test/*.test.mjs"` 69/69, `lint.sh` PASS, `suite-lifecycle.sh` 5/5, `watch-smoke.sh` PASS |
+| Offline harness tests (2026-10-04) | `node --test "evals/test/*.test.mjs"` 158/158, `lint.sh` PASS, `suite-lifecycle.sh` 6/6, `watch-smoke.sh` PASS, `suite-midrun.sh` model-fail / meter-dies / trip-review PASS |
 | A2 vs A3 offline (`a3offline.mjs`, 2026-10-04) | PASS (see A3) |
 
 ## Final regression (2026-10-03 13:17-13:22, HEAD 5d3e8fe, AC, no external activity)
@@ -372,8 +375,13 @@ after a killed generation answers in 173 ms). A meter that dies mid-run is detec
    decision rule and timeouts for the 10 non-C tasks (PLAN `D_gate.preparation_if_adopted`).
 4. **Ollama server settings**: keep them observed-only, or pin them (KV q8_0, flash attention, ...) as part of the re-pin.
 5. **After the re-pin**: the quant (step 12) and C's pre-registration (reps, order, timeouts, decision rule).
-6. **Housekeeping** (optional; recommendations in `evals/AUDIT.md`): 114 old sandboxes under `%TEMP%\agent-evals`, the
-   staged Ollama 0.35.1 installer. Nothing has been deleted.
+6. **Housekeeping** (optional; `evals/AUDIT.md` 21.5): 131 sandbox roots under `%TEMP%\agent-evals` (~36 GiB; re-analysis
+   reads them; 13 are from the 2026-10-04 real-process tests), the staged Ollama 0.35.1 installer. Recommendation: keep
+   both until C is archived. Nothing has been deleted.
+7. **Suite policy**: a TRIP needing review (VIOLATION/UNATTRIBUTED) now writes `ev-<label>/TRIP-NEEDS-REVIEW` and the
+   last line says so, but the exit code is still 0. Decide whether it should fail the suite (own exit code).
+8. **C pre-registration detail**: SETUP_FAILED tasks are excluded from the score (status contract); say whether C re-runs
+   them.
 
 Manual action, not a decision: disable Ollama automatic updates before the next Ollama restart ("Ollama auto-update").
 Already decided: A3 adopted as candidate for the next re-pin; compression on the main provider.
@@ -393,9 +401,29 @@ baseline, a grader, a timeout or any recorded result):
    never happened to archived evidence).
 8. cpreflight's own test step used an argument form node 26 rejects (`5fa5740`).
 
+## Second pre-hardware audit (2026-10-04, after the checkpoint)
+Re-review of the 20 commits since `bfad054` by tracing, plus fuzzing, fixtures and real-process tests (no inference,
+no pin/baseline/grader/timeout/result change). Details: `evals/AUDIT.md` section 21. Defects found and fixed:
+1. Missing termination evidence: a jcode run whose wrapper exited 0 without its `agent exit=... timedOut=...` line
+   could still be graded PASS (elapsed-time fallback); now AGENT_STATUS_UNKNOWN. analyze.mjs still counted legacy
+   `pass: true, timedOut: true` entries as PASS in its totals (2026-09-28 baseline printed 10/18; in time it is 7/18
+   + 3 TIMEOUT); now TIMEOUT (`8e7ec62`). 1,296-combination fixture sweep: PASS only for CLEAN + in-time + grader PASS.
+2. Monitoring: unparsed TRIP lines were dropped; warm-up, probe and pin-query attribution were too broad; IPv4-mapped
+   loopback; Ollama clients on other addresses; failed samples looked clean (`83a0fdc`). Archive unchanged: 1,686
+   TRIPs, 0 VIOLATION, 0 UNATTRIBUTED.
+3. repin.mjs: a recorded stage could be re-run in place (evidence overwritten); 5-6 without --apply locked the record; a
+   damaged record was silently replaced; --restart left outputs to be overwritten; stage 12 did not check the live
+   digest (`cbb730e`). cpreflight: 33 single-prerequisite fixtures BLOCKED, a full future-state fixture READY.
+4. Security review: run-id race, unvalidated METER_LISTEN/UPSTREAM in a PowerShell command, unguarded `rm -rf` of test
+   scratch args (`eb4cb4f`); `taskkill /F` portability (`f933a4e`).
+5. A flagged TRIP was easy to miss (exit 0, mid-output line); now a marker file and the last line (`9c9bf85`).
+New: `evals/RUNBOOK-POST-HARDWARE.md` (exact post-hardware sequence), `evals/perf/HARDWARE-REPORT.md` + `hwreport.mjs`,
+`a3stress.mjs` (A3 candidate evidence: PASS), `test/suite-midrun.sh` (real contained suite: model failure -> FAIL /
+exit 0; meter killed -> exit 6 in ~2 min; stray Ollama client -> TRIP-NEEDS-REVIEW; no surviving process).
+
 ## Hardware-ready checkpoint (2026-10-04, re-confirmed)
 Done: everything not needing new hardware. Not started: C, re-baseline, A3 pin, Ollama change, hardware selection.
-Next step after your hardware decision and installation: `evals/bench/repin.mjs --out <R> --stage 1` (= `evals/REPIN.md`
+Next step after your hardware decision and installation: follow `evals/RUNBOOK-POST-HARDWARE.md` (step 0, auto-update off, is possible now); its core is `evals/bench/repin.mjs --out <R> --stage 1` (= `evals/REPIN.md`
 step 1; `--dry-run` shows every stage first), then the stages in order, then `evals/bench/cpreflight.mjs --repin <R>`.
 
 ## To resume in a new Claude chat
