@@ -360,7 +360,8 @@ phases:
            "gates.sh 15/15 PASS on the A2 pin (exposed + fixed a meterabort.mjs path bug)", "meterabort.mjs PASS current meter, FAIL pre-bab3a17 meter",
            "T01 x4: 2 runs (8 launches, PowerShell + git-bash x contained + control) PASS, one fingerprint df1332d7 = the clean A2 validation's T01 entry; T01 8/8 PASS, env CLEAN",
            "quanttrial.mjs offline 13/13 + real-Ollama smoke", "editstring.mjs both ways PASS", "attrmon.ps1 in repo",
-           "AGENTS.md corrected", "Ollama auto-update: still ON, manual action documented (HANDOFF)", "compression model: analysed, recommendation in HANDOFF"]
+           "AGENTS.md corrected", "Ollama auto-update: still ON, manual action documented (HANDOFF)",
+           "Hermes compression -> provider main, model '' (2026-10-04, user instruction; operational config, not a baseline change)"]
     coverage_map: "HANDOFF 'Coverage': C needs T13 T14 T17 T04 T05 T03 T08 T01; the other 10 tasks stay historical (cycle 6) and are
                    proposed for D; T04 reruns inside C"
 known_limitations: ["T08 + T13: CPU/model-throughput TIMEOUT post-A2", "T03/T14/T17: CPU-throughput TIMEOUT (cycle 8, pre-A2)",
@@ -393,8 +394,9 @@ operating_rules:
   - "long runs launched by the user in PowerShell; Hermes reads only final logs; no polling"
   - "one benchmark runner at a time; nothing else using jcode/Ollama during a run (2 runs were CONTAMINATED by manual jcode use)"
   - "benchmarks on AC power; a run that slept is not evidence (suite.sh exit 7)"
-  - "Hermes compression model should be a trusted provider (still the free OpenRouter model; user decision, HANDOFF). It affects
-     operator context only, never the measurements; PLAN/HANDOFF/archive are the source of truth"
+  - "Hermes compression uses the main provider (auxiliary.compression provider main, model '' = Nous Portal anthropic/claude-opus-5.5;
+     free OpenRouter / paid Together only as fallbacks). Operational config outside the repo: it affects operator context only,
+     never the measurements, and is not an evaluation-baseline input; PLAN/HANDOFF/archive are the source of truth"
   - "the evaluated agent reads the eval-baseline-v1 tag's files, not HEAD's (AGENTS.md included); changing them means a new baseline tag"
   - "run evals/bench/gates.sh before any evidence run and after every re-pin; follow evals/REPIN.md for any pin change"
   - "keep the meter's output (suite.sh writes ev-<label>/meter.out); never filter it away in gate scripts"

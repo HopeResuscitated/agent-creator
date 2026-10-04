@@ -152,24 +152,30 @@ Hermes did not change it (OS/app setting outside the repo). To keep 0.34.4:
 3. Check: `curl http://127.0.0.1:11434/api/version` still `0.34.4`; `app.log` stops logging "New update available".
 If 0.35.1 ever installs, the pin gate refuses every run (exit 2): reinstall 0.34.4 or re-pin deliberately (REPIN step 2).
 
-## Hermes compression model
-- **Configured**: `C:\Users\cierra\AppData\Local\hermes\config.yaml`, `auxiliary.compression`: provider `openrouter`,
-  model `stepfun/step-3.7-flash:free` (timeout 120 s); fallback chain `openrouter inclusionai/ling-3.0-flash-fin:free`,
-  then `together meta-llama/Llama-3.3-70B-Instruct-Turbo` (paid). Main chat model: Nous Portal `anthropic/claude-opus-5.5`.
+## Hermes compression model (operational configuration, NOT an evaluation-baseline change)
+- **Now (changed 2026-10-04 at your instruction)**: `C:\Users\cierra\AppData\Local\hermes\config.yaml`,
+  `auxiliary.compression`: provider `main`, model `''` (empty = main chat model). Set with
+  `hermes config set auxiliary.compression.provider main` and `hermes config set auxiliary.compression.model ""`; only
+  those two lines changed (backup: `config.yaml.bak-before-compression-main`). Unchanged: timeout 120 s and the
+  fallback chain (`openrouter inclusionai/ling-3.0-flash-fin:free`, then `together meta-llama/Llama-3.3-70B-Instruct-Turbo`),
+  which is used only if the main provider fails, so conversation text can still reach those endpoints in that case.
+- **Was**: provider `openrouter`, model `stepfun/step-3.7-flash:free`.
+- **Verified (no API call, no benchmark)**: Hermes's `load_config` reads `main` / `''`; the compression task resolver
+  maps `main` -> `nous` and builds the client: Nous Portal `https://inference-api.nousresearch.com/v1/`, model
+  `anthropic/claude-opus-5.5` (= the main chat model). `hermes doctor` reports
+  "auxiliary.compression.provider 'main' does not resolve": a doctor false positive (its check uses the main-agent
+  resolver, which has no `main` alias; the docs list `main` as valid for `auxiliary.compression`, and the task
+  resolver above accepts it). Cost: each compaction is billed at the main model's rate.
 - **Effect on evaluation validity: none on the measurements.** It only summarises Hermes's own conversation when the
   context fills. The evaluated agent is jcode -> broker -> meter -> Ollama on loopback; grading is run.ts on disk files.
   Two indirect risks: (a) a summary can drop details the operator then mis-reports: this session's summarizer failed
   several times (deterministic fallback), which is why PLAN/HANDOFF and the archive are the source of truth; (b) data
   egress: the conversation (paths, logs, evidence) goes to a free third-party endpoint.
-- **Change mechanism**: config only, no code change: `hermes config set auxiliary.compression.provider <p>` and
-  `... .model <m>` (or edit `config.yaml`).
-- **Already supported**: provider `main` with model `""` = the main chat model via Nous Portal (no new provider, paid per
-  token at Opus rates); `nous` with a different model; `together` (already configured, paid, currently the last
-  fallback); `groq` (configured); `anthropic` (enabled; needs its own key); `base_url` to a local endpoint (local Ollama
-  would compete with benchmark runs on the same CPU and would show up as EXTERNAL activity; not recommended on this
-  machine).
-- **Recommendation**: a paid, trusted provider you already use; simplest is `provider: main` (no new credentials,
-  same trust boundary as the main model), at a cost per compaction. Hermes has not changed it.
+- With `main`, risk (b) applies only on the fallback path; risk (a) applies to any summarizer.
+- **Not touched by this change**: the repo, run.ts, suite.sh, gates, `baseline-env.json`, the jcode pin, Ollama and the
+  model. Hermes's config.yaml is outside the repo and is not a pinned input of any evaluation run.
+- To revert: `hermes config set auxiliary.compression.provider openrouter` and
+  `hermes config set auxiliary.compression.model stepfun/step-3.7-flash:free` (or restore the backup).
 
 ## AGENTS.md
 Line 3 said "LM Studio, Omnicoder 9B" with 10-30 tok/s: stale (the agent runs on Ollama 0.34.4, hermes-local-32k,
@@ -284,8 +290,7 @@ after a killed generation answers in 173 ms). A meter that dies mid-run is detec
 ## Open decisions (yours)
 1. **Hardware / GPU / VRAM** (H), before C. No minimum is specified by the project; see "Hardware decision".
 2. **Ollama auto-update**: turn it off manually (see "Ollama auto-update") to keep 0.34.4.
-3. **Hermes compression model/provider** (see "Hermes compression model"); recommendation `provider: main`.
-4. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
+3. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
 A3 needs no decision: adopted for the next re-pin, as you approved.
 
