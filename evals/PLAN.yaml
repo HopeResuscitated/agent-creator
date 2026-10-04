@@ -416,7 +416,7 @@ phases:
               "relay 12/12, contained-e2e 9/9", "meter kill-abort ttfb 176 ms", "zero-task suites contained + control: exit 0, AC, no sleep, TRIP 0",
               "repo fingerprint + git status + ~/.jcode unchanged"]
   C_rebaseline:
-    status: "NOT STARTED - BLOCKED on the remaining human steps (auto-update off; C pre-registration approved). The target environment is no longer a blocker: it is this machine (H_hardware DECIDED 2026-10-04)"
+    status: "NOT STARTED - pre-registered 2026-10-04 (user-approved), auto-update OFF; starts when cpreflight prints READY FOR C"
     preflight: "evals/bench/cpreflight.mjs --repin <R> [--warm] -> READY FOR C or BLOCKED: <every reason>; fails closed. The GPU-only
                 prerequisites (GPU visible, VRAM, GPU layers, 100%-GPU placement) were removed 2026-10-04: they existed only for the
                 abandoned dedicated-GPU plan. Real prerequisites kept: jcode integrity, model integrity, Ollama version, containment,
@@ -424,19 +424,41 @@ phases:
                 2026-10-04 after the CPU re-pin (record cycle10-cpu-repin, --warm): every prerequisite passes except the human
                 steps - C pre-registration not approved (plan-c-preregistered + repin-quant-consistent) and Ollama auto-update ON.
                 Model placement, model pin, jcode pin, Ollama version, fingerprint-in-PLAN, target match and hardware all PASS"
-    preregistration_proposed:   # PROPOSED by Hermes 2026-10-04, NOT APPROVED. cpreflight keeps plan-c-preregistered BLOCKED
-                  # until the user moves/approves these values into preregistration (the same six items; this block adds no criterion).
-                  # The only two open decisions in it are marked PROPOSED-DECISION below.
+    preregistration:   # APPROVED by the user 2026-10-04 (decisions below), recorded BEFORE the first C run. Adds no criterion beyond them.
+      approved: "2026-10-04 (user): Q4_K_M; setup failure -> rerun once, then SETUP_FAILED; same-mode disagreement <= 25%;
+                 no timeout, grader, task-difficulty or acceptance-criteria change"
+      environment: "CPU target (this machine: Ryzen AI 7 PRO 350, 31.2 GiB, AC); Ollama 0.34.4 (auto-update OFF);
+                    hermes-local-32k 1ef2c71ed2065896b080104a0499a15b320f9ea3f9049bacdadc42e71630b60f Q4_K_M num_ctx 32768 num_gpu 0;
+                    jcode A3 710560f91 sha256 42ed4012e129cc36e9d3f3c299b3015fbde5c8cb95cab36ed41f0d526fd0bab7; node 26.7.0 (pinned);
+                    task tree eval-baseline-v1; re-pin record hermes-bench-archive/cycle10-cpu-repin (T01 fingerprint 90862fc1...)"
       tasks: [T13, T14, T17, T04, T05, T03, T08, T01]
-      reps: "3 per mode (contained, control), alternating"
-      order: "T01 first (warm-up + fingerprint), then the declared task order; contained and control paired per task"
-      timeouts: "UNCHANGED from the reference implementation: T01 900 s, T03/T08/T13/T14/T17 2700 s, T04/T05 1200 s (a CPU timeout stays a TIMEOUT)"
-      decision_rule: ["invariants hold every contained run", "fingerprints match within mode",
+      reps: "3 per mode (contained, control) = 6 suite runs, 48 task runs"
+      order: "runs C1-contain, C1-control, C2-contain, C2-control, C3-contain, C3-control (alternating); within a run the task
+              order is reduced.sh's: T13 T14 T17 T04 T05 T03 T08 T01. C1-contain's effective-config.json is the --ref for every
+              later run (reduced.sh stops on any per-task config-fingerprint mismatch)"
+      timeouts: "UNCHANGED, from evals/tasks.json timeoutMin: T13 45, T14 45, T17 20, T04 15, T05 20, T03 15, T08 30, T01 15 (minutes).
+                 A run that reaches its limit is TIMEOUT even if the grader passes (outcome.ts). (Correction: the earlier
+                 PROPOSED text quoted wrong values - 2700/1200 s; never used; tasks.json is the source)"
+      setup_failure: "a task whose outcome is SETUP_FAILED is re-run ONCE, same mode, same pins, as a separate suite run
+                      (label <run>-setuprerun-<task>) after the six runs; if it is SETUP_FAILED again it is recorded SETUP_FAILED
+                      (excluded from scoring and disagreement; never a PASS, never a model failure)"
+      outcomes: "per task run: PASS / FAIL / TIMEOUT / SETUP_FAILED (status contract) ; AGENT_STATUS_UNKNOWN or UNSAFE_PROCESS_TREE ->
+                 INCONCLUSIVE (not graded, counts as not-PASS); a suite with non-zero exit (6 meter, 7 sleep, 8 refused, 10
+                 integrity, 11 Ollama restart, 130) -> its tasks are CONTAMINATED/NOT RUN and C stops; tasks never reached -> NOT RUN"
+      decision_rule: ["invariants hold every contained run", "fingerprints match within mode (reduced.sh --ref: every run, per task)",
                       "no contained-only failure with a containment-specific error",
-                      "contained-vs-control disagreement <= contained-vs-contained", "same-mode disagreement well below 41%"]
+                      "contained-vs-control disagreement <= contained-vs-contained",
+                      "same-mode disagreement <= 25%"]
+      disagreement_definition: "outcome reduced to PASS vs not-PASS per (run, task); pairs where either side is SETUP_FAILED are excluded.
+                      same-mode = over every unordered pair of reps within a mode x 8 tasks (pooled over both modes: 2 x 3 x 8 = 48
+                      comparisons); contained-vs-contained = the contained part of that; contained-vs-control = every (contained rep,
+                      control rep) pair x 8 tasks (72 comparisons). Disagreement = differing comparisons / comparisons"
       quant: "Q4_K_M"
-      PROPOSED-DECISION-1: "tasks that fail at SETUP (not evaluation) - re-run them within the rep, or record them as SETUP_FAILED and exclude? Proposal: re-run once, then record SETUP_FAILED (not a PASS, not counted as a model failure)"
-      PROPOSED-DECISION-2: "'well below 41%' is a free-text threshold - replace it with a number before the first run? Proposal: same-mode disagreement <= 25%"
+      evidence: "hermes-bench-archive/cycle10-C (reduced.log, run-*.log, ev-*/ meter, watch, power, fingerprints), evals/results/<run id>/
+                 (results.json, summary.md, effective-config.json, transcripts); sandboxes under %TEMP%/agent-evals kept"
+      start_stop: "start only after cpreflight --repin cycle10-cpu-repin --warm prints READY FOR C on a clean tree at the
+                   preregistration commit; stop on any reduced.sh STOP (exit 3/4/6/7/8/10/11/130) - an integrity/environment
+                   event, not a result. No repo edit during the run"
     preregistration_format: "what cpreflight checks for, i.e. the items REPIN.md step 13 already requires, under
                 C_rebaseline.preregistration: { tasks, reps, order, timeouts, decision_rule, quant }. NOT filled in: pre-registration
                 is the user's step after the re-pin. Format only; it adds no criterion"
@@ -447,7 +469,7 @@ phases:
     decision_rule: ["invariants hold every contained run", "fingerprints match within mode",
                     "no contained-only failure with a containment-specific error",
                     "contained-vs-control disagreement <= contained-vs-contained", "same-mode disagreement well below 41%"]
-    preconditions_left: ["REMAINING HUMAN STEPS ONLY 2026-10-04 (verified by cpreflight --warm): (1) Ollama auto-update OFF (tray icon > Settings) or a deliberate re-pin; (2) approve preregistration (move preregistration_proposed -> preregistration; decide PROPOSED-DECISION-1/2). H is decided (CPU target). REPIN.md steps 1-12 ran 2026-10-04 on the CPU target (all PASS)", "H decided (CPU target: this machine)", "REPIN.md steps 1-12 PASS (A3 pinned then)", "Ollama auto-update off (manual, user) or deliberately re-pinned",
+    preconditions_left: ["NONE of the human steps remain (2026-10-04): auto-update OFF (user; db.sqlite auto_update_enabled=0), preregistration approved (above)", "H decided (CPU target: this machine)", "REPIN.md steps 1-12 PASS (A3 pinned then)", "Ollama auto-update off (manual, user) or deliberately re-pinned",
                          "C pre-registered in this file (tasks, reps, order, timeouts, decision rule) before the first C run", "machine on AC and exclusive"]
     preconditions_done: ["A3 adopted as candidate (2026-10-03; becomes authoritative only via REPIN.md)", "repo AGENTS.md corrected (HEAD); C keeps eval-baseline-v1, whose AGENTS.md still has the old text
                          (sandboxes come from the tag, not HEAD) - same text in every run, so no contained-vs-control bias"]

@@ -393,10 +393,9 @@ a3offline 18/18, `~/.jcode` unchanged, pin commit `8295bb7`, `gates.sh` PASS, T0
 from the A2 value as required), quant Q4_K_M. A3 is therefore the pin; nothing was pushed.
 
 ## Open decisions (yours)
-1. **Ollama auto-update**: still ON (manual tray action). It is the last non-human-tooling blocker for C: a restart would
-   install the staged 0.35.1 and every run would refuse (exit 8) until a deliberate re-pin. Step 1-12 do not restart Ollama.
-2. **C pre-registration**: approve `C_rebaseline.preregistration_proposed` (PROPOSED, not approved). Two open decisions in
-   it: tasks that fail at SETUP (re-run once vs record SETUP_FAILED) and replacing "well below 41%" with a number.
+1. ~~Ollama auto-update~~ DONE 2026-10-04 (user): OFF (`db.sqlite` auto_update_enabled = 0).
+2. ~~C pre-registration~~ APPROVED 2026-10-04 (user): PLAN `C_rebaseline.preregistration` (Q4_K_M; setup failure -> rerun
+   once, then SETUP_FAILED; same-mode disagreement <= 25%; no timeout/grader/difficulty/criteria change).
 3. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
 4. **D gate definition** (adopt / change / reject the PROPOSAL in Coverage): needed before D, not before C. If adopted,
