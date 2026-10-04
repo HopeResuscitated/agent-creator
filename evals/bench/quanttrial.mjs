@@ -41,7 +41,7 @@ const [HOST, PORT] = opt.upstream.split(':');
 function sendTo(host, port, timeoutS, body) {
   return new Promise((resolve) => {
     const t0 = Date.now(); let ttfb = 0, buf = '', status = 0, done = false;
-    const q = http.request({ host, port: +port, path: '/v1/chat/completions', method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => {
+    const q = http.request({ host, port: +port, agent: false, path: '/v1/chat/completions', method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => {
       status = res.statusCode; res.setEncoding('utf8');
       res.on('data', (c) => { if (!ttfb) ttfb = Date.now() - t0; buf += c; });
       res.on('end', () => { if (!done) { done = true; clearTimeout(timer); resolve({ status, buf, ttfb, total: Date.now() - t0 }); } });
@@ -92,7 +92,7 @@ let list = [...byHash.values()].sort((x, y) => (x.h < y.h ? -1 : 1));
 if (opt.limit) list = list.slice(0, opt.limit);
 console.log(`requests: ${files.length} files, ${byHash.size} unique, using ${list.length} x ${opt.reps} reps, model ${opt.model}`);
 // model state before the first request: loaded or not, and placement (Ollama /api/ps)
-const ps = await new Promise((resolve) => { const q = http.get({ host: HOST, port: +PORT, path: '/api/ps', timeout: 10000 }, (res) => { let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } }); }); q.on('error', () => resolve(null)); q.on('timeout', () => { q.destroy(); resolve(null); }); });
+const ps = await new Promise((resolve) => { const q = http.get({ host: HOST, port: +PORT, path: '/api/ps', agent: false, timeout: 10000 }, (res) => { let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } }); }); q.on('error', () => resolve(null)); q.on('timeout', () => { q.destroy(); resolve(null); }); });
 const startState = modelState(ps, opt.model);
 console.log(`model at start: ${JSON.stringify(startState)}`);
 fs.mkdirSync(path.dirname(path.resolve(opt.out)), { recursive: true }); fs.writeFileSync(opt.out, '');
