@@ -6,8 +6,8 @@ branch: cierra-wip-2026-09-29      # PUSH STATE UNRESOLVED: origin has this bran
                                    # session) although this file said "local only, never pushed". Local is ahead of
                                    # origin by the commits under harness_commits (15 at the 2026-10-03 pre-C docs commit).
                                    # Hermes has not pushed. jcode-evalpin has no upstream configured; also never pushed.
-head: 5d3e8fe                      # last harness-code commit 2026-10-03; later commits: AGENTS.md, re-pin tooling (evals/bench), docs
-updated: 2026-10-03
+head: f26e6ff                      # last harness-code commit 2026-10-04 (run id uniqueness); see harness_commits
+updated: 2026-10-04
 
 pins:                              # the evaluation contract; run.ts refuses (exit 2) on any mismatch
   node: "patched node 26.7.0 (A0, 14f50f2)"
@@ -23,8 +23,10 @@ pins:                              # the evaluation contract; run.ts refuses (ex
   model_server: "Ollama 0.34.4; hermes-local-32k digest 1ef2c71ed2065896b080104a0499a15b320f9ea3f9049bacdadc42e71630b60f (A0b)
                  = Qwen3-Coder 30B-A3B Instruct (qwen3moe, 30.5B total, 8 of 128 experts active), Q4_K_M (17.28 GiB blob 1194192c),
                  num_ctx 32768, num_gpu 0 (forces CPU), temperature 0.15, top_k 20, top_p 0.8, repeat_penalty 1.05.
-                 Host settings (not pinned, record on change): OLLAMA_CONTEXT_LENGTH=32768 FLASH_ATTENTION=1 KV_CACHE_TYPE=q8_0
-                 KEEP_ALIVE=30m IGPU_ENABLE=1"
+                 Server settings (OBSERVED, NOT PINNED; pinning them is a deliberate baseline decision): the running server's
+                 own startup record (evals/bench/ollamaenv.mjs) = evals/bench/ollama-server-env.observed.json: CONTEXT_LENGTH 32768,
+                 FLASH_ATTENTION true, KV_CACHE_TYPE q8_0, NUM_PARALLEL 1, KEEP_ALIVE 30m, VULKAN true, IGPU_ENABLE 1 (server started
+                 2026-09-28 23:40, i.e. the server of every a2val3 and b6 run). gates.sh prints it (INFO); suite.sh records it per run"
   t01_fingerprint: "df1332d786b0ee3b57f58eb6e7eff90a69e366e5998efe8f9d3b6b5319d60e64 (A2 pin; clean A2 validation 2026-10-02 and
                     T01 x4 2026-10-03: 4 launch paths identical). Pre-A2 (1fbb2e1b4): 4dcba4e1... The re-pin MUST produce a new value."
 
@@ -43,6 +45,21 @@ harness_commits:                   # since 6ca495a (the last commit on origin)
   c323b98: "PLAN/HANDOFF after Phase B on AC (B COMPLETE), power integrity, A3 candidate, final regression"
   2a8c443: "AGENTS.md: backend line describes the validated environment (was LM Studio / Omnicoder 9B)"
   63ce1cd: "re-pin tooling: gates.sh, meterabort.mjs, t01x4.ps1, quanttrial.mjs, editstring.mjs, attrmon.ps1"
+  326ba4e: "classification: a run that hits its time limit is TIMEOUT, never PASS (evals/outcome.ts; wrapper note authoritative)"
+  ef0c8df: "suite.sh: run.ts exit propagated (8), integrity exit (10), interrupt cleanup (130), busy meter port refused (1)"
+  542d6c8: "monitoring: tripclass.mjs attributes every TRIP; watch.ps1 loopback = 127.0.0.0/8, root=eval|external"
+  e536696: "evals/test/lint.sh (syntax + Windows portability)"
+  dc281ad: "suite.sh refuses labels that could make its rm -rf leave <out> (exit 2)"
+  75c6faa: "Ollama server settings recorded (ollamaenv.mjs; observed, not pinned)"
+  1fc6f7f: "a3offline.mjs (A2 vs A3, 18 fake-provider scenarios); telemetry opt-out in fake-provider runs"
+  3c80c51: "docrefs.mjs (documentation references checked against the tree)"
+  0ff6333: "hwprofile.ps1, perfreport.mjs, perfsample.ps1; CPU baseline in evals/perf/"
+  3fa1a60: "quanttrial.mjs: stream_error is not malformed; warm-only median ttfb; cache + model state recorded"
+  e2b60d0: "repin.mjs (REPIN.md as fail-closed stages) + cpreflight.mjs (READY FOR C / BLOCKED)"
+  630f57b: "coverage.mjs (18-task matrix from results + archive)"
+  8223379: "~/.jcode guard in a3offline and re-pin stage 4"
+  8336189: "suite.sh: an Ollama restart during the run -> exit 11 (not evidence)"
+  f26e6ff: "run.ts never reuses a run id (same-minute runs overwrote results + deleted sandboxes); bench/README"
 jcode_commits:                     # C:/Users/cierra/jcode-evalpin, local only
   1fbb2e1b4: "XML tool-call recovery (previous pin)"
   7ed7403f8: "A2: retry an HTTP 200 stream that ends without finish_reason (cap 2, only if this response emitted no tool call) - branch eval-pin-74577fe83, PINNED"
@@ -53,9 +70,11 @@ architecture: |
     -> evals/tools/run-in-job.ps1 (Job Object, AppContainer, ACL grants, fixed env + PATH)
       -> jcode (contained) -> model-relay.mjs 127.0.0.1:<rand> -> named pipe (DACL: user + this run's AC SID, Low IL)
       -> ModelBroker (trusted side, one canonical 127.x upstream) -> meter.mjs 127.0.0.2:11439
-      -> Ollama 127.0.0.1:11434 -> hermes-local-32k (CPU; measured decode 3.9-4.8 tok/s on AC at 8-11k-token prompts (2.4 on battery), first token up to 357 s)
-  Monitors: watch.ps1 (watchdog), fpcmp.mjs (repo + ~/.jcode integrity), analyze/classify.mjs,
-            keepawake.ps1 + sleepcheck.ps1 (power integrity, ev-<label>/power.txt)
+      -> Ollama 127.0.0.1:11434 -> hermes-local-32k (CPU; measured decode 3.9-4.8 tok/s on AC at 8-11k-token prompts (2.4 on battery),
+         first token up to 282 s on AC (a2val3 T13; 274 s in b6); 357 s was b5 on battery, historical)
+  Monitors: watch.ps1 (watchdog) + tripclass.mjs (attribution), fpcmp.mjs (repo + ~/.jcode integrity), analyze/classify.mjs,
+            keepawake.ps1 + sleepcheck.ps1 (power integrity, ev-<label>/power.txt), ollamaenv.mjs (server settings + restart)
+  Classification: evals/outcome.ts (unit-tested). Offline tests: node --test "evals/test/*.test.mjs" + bash evals/test/lint.sh
   Control mode (--no-contain-unsafe): same config/env/tools, no AppContainer/ACL/broker.
 
 invariants:            # must hold on every contained run
@@ -75,6 +94,16 @@ status_contract:       # run-in-job.ps1 exit -> scoring
   5: "AGENT_STATUS_UNKNOWN - not graded, counts as fail"
   suite_sh_exit_6: "meter died during the run - the whole run is not evidence (reduced.sh stops)"
   suite_sh_exit_7: "machine slept during the run (System log) - the whole run is not evidence (reduced.sh stops)"
+  suite_sh_exit_8: "run.ts failed or refused (e.g. a pin gate exit 2) - not evidence"
+  suite_sh_exit_10: "repo fingerprint or ~/.jcode changed during the run - not evidence"
+  suite_sh_exit_11: "the Ollama server restarted during the run (its start time changed) - not evidence"
+  suite_sh_exit_130: "interrupted (Ctrl+C / TERM / HUP); meter, watch, keepawake stopped; ev-<label>/INTERRUPTED - not evidence"
+  suite_sh_exit_1_2: "1 meter could not start or its port was already in use; 2 usage / unsafe label - nothing ran"
+  outcome_classes: "run.ts (evals/outcome.ts), first match: SETUP_FAILED | UNSAFE_PROCESS_TREE | AGENT_STATUS_UNKNOWN (not graded) >
+                    ENV_RESTORE_FAILED (not graded) > ENV_CONTAMINATED > TIMEOUT (grader verdict kept as graderPass, never PASS) >
+                    PASS | FAIL. Timeout = the wrapper's own 'timedOut=' line; elapsed time only when that line is missing.
+                    results.json from before 326ba4e recorded pass=true for timed-out runs; documents already counted those
+                    as TIMEOUT, and the files are not rewritten"
 
 known_limits_contained: ["del/erase denied (rmdir /s, fs.rmSync work)", "no taskkill/tasklist (node --test ~+9 s)",
                          "no python", "no network (npm install fails)"]
@@ -289,7 +318,12 @@ phases:
              Every validated result so far comes from the A2 binary. Becomes authoritative only after REPIN.md steps 4-11 pass."
     prepared: ["binary identity re-verified 2026-10-03: sha256 42ed4012...0bab7, jcode v0.88.65-dev (710560f91), branch head 710560f91154f5fed6f1ec9a34b9852a471d8b5f",
                "scenario test in the repo: evals/bench/editstring.mjs; 2026-10-03: A3 --expect fixed PASS, A2 --expect unfixed PASS, ~/.jcode unchanged",
-               "run.ts still refuses it (gates.sh jcode-pin-refusal)"]
+               "run.ts still refuses it (gates.sh jcode-pin-refusal)",
+               "2026-10-04 evals/bench/a3offline.mjs: A2 and A3 REAL binaries vs 18 fake-provider scenarios (normal, text+EOF, Ollama
+                rejected tail, HTTP 500 once/always, tool then EOF, partial text not in history, 2 ordered tool calls, duplicate ids,
+                truncated JSON args, unknown tool, failed edit, args split across deltas, edits E1-E4): IDENTICAL behaviour except
+                E2/E3 (as designed), all per-build invariants hold, ~/.jcode unchanged. Observed on BOTH: a nonexistent tool name ends
+                the run (exit 1) instead of an error result. editstring both ways PASS again. Offline evidence only"]
     required_after_hardware: ["REPIN.md step 4: identity (or rebuild + unit tool::edit 20/20) + editstring both ways", "step 6: pin commit alone",
                "steps 7-10: gates.sh GATES PASS with the A2 and 1fbb2e1b4 binaries refused", "step 11: T01 x4 one fingerprint, != df1332d7...",
                "first real tasks: C"]
@@ -311,7 +345,13 @@ phases:
     status: "BLOCKED - open decision (user); not decided by Hermes. Technical requirements: HANDOFF, Hardware decision"
     current_machine: "AMD Ryzen AI 7 PRO 350 (8C/16T), 31.2 GiB RAM, integrated Radeon 860M, no discrete GPU, Windows 11 Pro 10.0.26200; CPU-only by model config (num_gpu 0)"
     gpu_vram_minimum: "NOT SPECIFIED by the project - user decision. Arithmetic only (not a requirement): Q4_K_M weights 17.28 GiB; KV at 32768 ctx
-                       ~3.0 GiB f16 / ~1.6 GiB q8_0 (48 layers x 4 KV heads x 256); Q8_0 weights ~30 GiB (estimate); compute buffers unmeasured"
+                       ~3.0 GiB f16 / ~1.6 GiB q8_0 (48 layers x 4 KV heads x 256); Q8_0 weights ~30 GiB (estimate); compute buffers on a GPU
+                       unmeasured (on CPU: 240.1 MiB, below)"
+    cpu_memory_measured: "2026-10-04, model loaded, idle (evals/perf/cpu-baseline-hwprofile.json): llama-server buffers weights 4,258.8 MiB +
+                       13,432.5 MiB repacked, KV 1,632 MiB (q8_0 K 816 + V 816), compute 240.1 MiB, output 0.58 MiB; Ollama /api/ps size
+                       20,514,361,834 B (19.1 GiB); runner private 19.29 GiB, working set 6.50 GiB (peak 15.87); Windows Memory
+                       Compression working set 5.82 GiB (peak 14.17) on 31.2 GiB RAM. Facts, not a VRAM requirement"
+    gpu_visible_now: "Ollama sees the integrated Radeon 860M via Vulkan (16.1 GiB shared, iGPU); unused: num_gpu 0. Not the hardware change"
     model_rebuild_on_gpu: "num_gpu 0 must be removed (same weights + parameters, new digest): REPIN.md step 3"
     proven_on_cpu: ["containment, fingerprints, gates and the contained-vs-control comparison do not depend on speed",
                     "T03/T14/T17 timeouts are slow-but-progressing generation, not hangs or harness faults; none involved an incomplete stream",
@@ -331,7 +371,8 @@ phases:
                   Tool: evals/bench/quanttrial.mjs over the 217 unique captured requests (cycles 7-9) x 2 reps = 434 samples.
                   Not feasible on this CPU: a 15-message captured request, replayed cold, was not done after 9 min
                   (157 s in its original run with a warm prefix cache). Replay first-token times are cold-cache: compare quants
-                  with each other, never with agent-run meters"
+                  with each other, never with agent-run meters. 2026-10-04 (3fa1a60): transport faults are stream_error (not
+                  malformed); median ttfb uses warm 200 responses only; prefix-cache share and the model's start state are recorded"
     timeouts: "do not raise task timeouts to manufacture passes; decide them with the hardware, pre-registered for C"
   final_regression:
     status: "PASS - 2026-10-03 13:17-13:22, HEAD 5d3e8fe, jcode f76eff11, AC, 0 EXTERNAL-ACTIVITY (archive cycle9/final-regression)"
@@ -340,6 +381,12 @@ phases:
               "repo fingerprint + git status + ~/.jcode unchanged"]
   C_rebaseline:
     status: "NOT STARTED - BLOCKED on H (A2 is complete; C must run on the final hardware + model, so running it now would be discarded)"
+    preflight: "evals/bench/cpreflight.mjs --repin <R> [--warm] -> READY FOR C or BLOCKED: <every reason>; fails closed. 2026-10-04: BLOCKED
+                (10 reasons on a clean tree: no re-pin record, A2 + CPU model pinned, H open, A3 candidate, C not pre-registered, no
+                recorded A3 binary, 100% CPU, no re-pin Ollama-settings record, auto-update ON)"
+    preregistration_format: "what cpreflight checks for, i.e. the items REPIN.md step 13 already requires, under
+                C_rebaseline.preregistration: { tasks, reps, order, timeouts, decision_rule, quant }. NOT filled in: pre-registration
+                is the user's step after the re-pin. Format only; it adds no criterion"
     tasks: [T13, T14, T17, T04, T05, T03, T08, T01]
     design: "3 reps per mode, alternating; paired analysis across tasks; pre-registered before running"
     primary_metrics: [incomplete_stream_rate, retry_recovery_rate, invariants]
@@ -356,6 +403,11 @@ phases:
     definition: "NOT ADOPTED - nothing beyond 'after C' is a requirement"
     proposal: "PROPOSED, NOT APPROVED (Hermes; user decides before D, not needed for C): 1) C passes its decision rule; 2) one 18-task
                contained + control run on the final pin (T02 T06 T07 T09-T12 T15 T16 T18 otherwise never run on it)"
+    preparation_if_adopted: "NOT A REQUIREMENT - implementation burden only. 1) C result: C's own analysis (no new code). 2) 18-task run:
+               the existing reduced.sh / suite.sh with --only <all 18> per mode on the final pin, gated by cpreflight-style checks; no
+               new harness code. Missing pieces, if adopted: a pre-registered D decision rule (pass threshold? equivalence?), D timeouts
+               for the 10 non-C tasks (decided with the hardware like C's), and a D preflight variant requiring C=PASS. Wall time on the
+               new hardware unknown (on this CPU 8 tasks took ~2-2.5 h per mode)"
   pre_C_preparation:
     status: "COMPLETE 2026-10-03 - non-hardware work only; C not started, nothing re-baselined, A3 not pinned, Ollama not changed, nothing pushed"
     done: ["A3 adopted and prepared (above)", "evals/REPIN.md: deterministic re-pin sequence with pass conditions",
@@ -366,8 +418,18 @@ phases:
            "Hermes compression -> provider main, model '' (2026-10-04, user instruction; operational config, not a baseline change)"]
     coverage_map: "HANDOFF 'Coverage': C needs T13 T14 T17 T04 T05 T03 T08 T01; the other 10 tasks stay historical (cycle 6); running them
                    before D is only PROPOSED (not approved); T04 reruns inside C"
-checkpoint: "HARDWARE-READY 2026-10-04: all non-hardware work done; C NOT STARTED; no re-baseline; A2 pin unchanged; Ollama 0.34.4
-             unchanged; nothing pushed. Next: user hardware decision, then evals/REPIN.md step 1"
+  post_checkpoint_hardening:
+    status: "COMPLETE 2026-10-04 - autonomous non-hardware backlog (evals/AUDIT.md); no pin, baseline, Ollama, hardware or acceptance change;
+             C not started; D proposed only; nothing pushed"
+    defects_fixed: ["TIMEOUT could be scored PASS (326ba4e)", "suite.sh lost run.ts's exit status; no cleanup on interrupt; adopted a
+               leftover meter (ef0c8df)", "unsafe label could make rm -rf leave <out> (dc281ad)", "127.0.0.2 reported as non-loopback
+               (542d6c8)", "fake-provider jcode runs without telemetry opt-out (1fc6f7f)", "quanttrial: transport fault counted as
+               malformed; ttfb median included 0s (3fa1a60)", "Ollama restart mid-suite became model FAILs (8336189)", "same-minute
+               runs overwrote each other (f26e6ff)"]
+    tests: "node --test evals/test/*.test.mjs (offline, seconds) + lint.sh + suite-lifecycle.sh 5/5 + watch-smoke.sh + a3offline PASS"
+checkpoint: "HARDWARE-READY 2026-10-04 (re-confirmed after post_checkpoint_hardening): all non-hardware work done; C NOT STARTED; no
+             re-baseline; A2 pin unchanged; Ollama 0.34.4 unchanged; nothing pushed. Next: user hardware decision, then
+             evals/bench/repin.mjs --stage 1 (REPIN.md step 1)"
 evidence_classes:
   authoritative: ["clean A2 validation 2026-10-02 (validation_a2_clean)", "b6 = the authoritative Phase B run", "final regression 2026-10-03",
                   "gates.sh 15/15 + T01 x4 2026-10-03 (pre_C_preparation)", "reference agent 18/18 (2026-10-03)"]
@@ -376,12 +438,22 @@ evidence_classes:
   candidate_fixes: ["A3 710560f91 (42ed4012...): ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE, not pinned"]
   hardware_dependent: ["REPIN.md steps 1-12 incl. quant trial", "C_rebaseline", "D_gate", "infrastructure_phase"]
   proposed_not_approved: ["D_gate.proposal"]
+human_decisions:      # open; Hermes does not decide these (status.mjs --check requires this list)
+  - "hardware: GPU / VRAM / machine (H_hardware); measured facts in HANDOFF 'Hardware decision'"
+  - "Ollama: keep 0.34.4 (turn auto-update off in the tray before the next restart) or deliberately re-pin a new version"
+  - "after the re-pin: the quant (REPIN step 12) and C's pre-registration (reps, order, timeouts, decision rule)"
+  - "D: adopt, change or reject the D_gate.proposal (needed before D, not before C)"
+  - "push: whether/where to push cierra-wip-2026-09-29 and the jcode-evalpin branches"
+  - "pin the observed Ollama server settings (KV q8_0, flash attention, ...) or keep them observed-only"
+  - "housekeeping: old sandboxes under %TEMP%/agent-evals (114 dirs) and the Ollama 0.35.1 staged installer (evals/AUDIT.md)"
 known_limitations:
   cpu_throughput: ["T08 + T13: TIMEOUT post-A2 (CPU/model throughput; progressing, not stalled)",
-                   "T03/T14/T17: TIMEOUT (cycle 8, pre-A2; historical CPU-throughput limitation)",
+                   "T03/T14/T17 (cycle 8, pre-A2, historical; as recorded): contained PASS(to) x3 = TIMEOUT; control T03 PASS, T14
+                    FAIL(to) = TIMEOUT, T17 PASS. Not run on the A2 pin (C tasks). CPU-throughput limitation",
                    "T05 control: 2/5 authoritative runs TIMEOUT at 1201 s (graded tests pass; recorded as TIMEOUT, not PASS)"]
   model_behaviour: ["model occasionally rewrites protected tests and misreports it (b5 T05 contained FAIL, on record)",
-                    "malformed tool arguments: Ollama XML side handled by A2; edits-as-string fixed by A3 (candidate, not pinned); fused keys stay rejected"]
+                    "malformed tool arguments: Ollama XML side handled by A2; edits-as-string fixed by A3 (candidate, not pinned); fused keys stay rejected",
+                    "a hallucinated tool name ends the jcode run (exit 1; same on A2 and A3; recorded 2026-10-04, not changed)"]
 
 infrastructure_phase:  # one change at a time, each followed by an 8-task contained + control re-check
   E1: "contained 'work on my folder' command (replaces running jcode uncontained)"
@@ -414,3 +486,4 @@ operating_rules:
   - "the evaluated agent reads the eval-baseline-v1 tag's files, not HEAD's (AGENTS.md included); changing them means a new baseline tag"
   - "run evals/bench/gates.sh before any evidence run and after every re-pin; follow evals/REPIN.md for any pin change"
   - "keep the meter's output (suite.sh writes ev-<label>/meter.out); never filter it away in gate scripts"
+  - "after any change to evals/: node --test 'evals/test/*.test.mjs', bash evals/test/lint.sh, node evals/bench/status.mjs --check (consistency)"
