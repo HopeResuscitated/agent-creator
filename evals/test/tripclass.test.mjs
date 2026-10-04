@@ -16,15 +16,17 @@ const L = {
   outside: '2026-10-01T00:00:00 TRIP outside-dir-written entries=x.txt',
 };
 const warm = [Date.parse('2026-10-03T12:11:03'), Date.parse('2026-10-03T12:11:08')];
-const C = (line, mode, warmup = null) => classifyTrip(parseTrip(line), { mode, warmup });
+const C = (line, mode, warmup = null, probe = false) => classifyTrip(parseTrip(line), { mode, warmup, probe });
+const warmCurlWin = [Date.parse('2026-10-01T07:31:20'), Date.parse('2026-10-01T07:31:40')];
 
 test('parse: BOM, fields', () => {
   const t = parseTrip(L.vanished);
   assert.equal(t.kind, 'ollama-connection-from-non-meter'); assert.equal(t.name, '?'); assert.equal(t.cmd, ''); assert.equal(t.time, '2026-10-03T12:11:05');
   assert.equal(parseTrip('2026-10-01T00:00:00 heartbeat samples=30'), null);
 });
-test('warm-up curl is harness traffic in both modes', () => {
-  assert.equal(C(L.warmCurl, 'contain'), 'harness-warmup'); assert.equal(C(L.warmCurl, 'control'), 'harness-warmup');
+test('warm-up curl is harness traffic in both modes, inside the warm-up window only', () => {
+  assert.equal(C(L.warmCurl, 'contain', warmCurlWin), 'harness-warmup'); assert.equal(C(L.warmCurl, 'control', warmCurlWin), 'harness-warmup');
+  assert.equal(C(L.warmCurl, 'control'), 'UNATTRIBUTED'); assert.equal(C(L.warmCurl, 'control', warm), 'UNATTRIBUTED');
 });
 test('vanished process: warm-up only inside the window', () => {
   assert.equal(C(L.vanished, 'control', warm), 'harness-warmup');
@@ -43,7 +45,7 @@ test('127.0.0.2 is loopback; real egress is VIOLATION when contained', () => {
   assert.equal(C(L.cf, 'control'), 'control-egress'); assert.equal(C(L.cf, 'contain'), 'VIOLATION');
 });
 test('probe and outside-dir', () => {
-  assert.equal(C(L.probe, 'control'), 'probe'); assert.equal(C(L.outside, 'control'), 'VIOLATION'); assert.equal(C(L.outside, 'contain'), 'VIOLATION');
+  assert.equal(C(L.probe, 'control', null, true), 'probe'); assert.equal(C(L.probe, 'control'), 'UNATTRIBUTED'); assert.equal(C(L.probe, 'contain'), 'VIOLATION'); assert.equal(C(L.outside, 'control'), 'VIOLATION'); assert.equal(C(L.outside, 'contain'), 'VIOLATION');
 });
 test('unknown TRIP kind is UNATTRIBUTED', () => { assert.equal(C('2026-10-01T00:00:00 TRIP something-new pid=1', 'contain'), 'UNATTRIBUTED'); });
 test('classifyLog counts and flags', () => {

@@ -11,6 +11,9 @@
 #                                     root=eval (tree of a jcode with --provider-profile evalbroker) or root=external
 #                                     (any other jcode.exe tree, e.g. a manual run: contamination, not the eval agent)
 #   outside-dir-written               the canary directory outside the sandbox is no longer empty
+#   watch-sample-failed               a sample could not list processes or connections (it would otherwise look clean)
+# The Ollama check covers every client of -OllamaPort whatever address it dialed; loopback for the agent check is
+# 127.0.0.0/8, ::1 and IPv4-mapped ::ffff:127.0.0.0/104.
 # Heartbeat every 30 samples; final "watch stop" line with totals. Read-only: never kills or changes anything.
 param(
   [Parameter(Mandatory = $true)][string]$Out,
@@ -30,7 +33,8 @@ W "watch start meterPid=$MeterPid outside=$OutsideDir"
 $samples = 0; $maxAgents = 0; $ollamaConns = 0; $meterConns = 0
 while (-not (Test-Path -LiteralPath $Stop)) {
   $samples++
-  $procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+  $cimErr = $null; $tcpErr = $null
+  $procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue -ErrorVariable cimErr)
   $byPid = @{}; foreach ($p in $procs) { $byPid[[int]$p.ProcessId] = $p }
   $agents = @($procs | Where-Object { $_.Name -ieq $AgentImage })
   if ($agents.Count -gt $maxAgents) { $maxAgents = $agents.Count }
@@ -38,11 +42,17 @@ while (-not (Test-Path -LiteralPath $Stop)) {
   # $tree[pid] = 'eval' | 'external': the class of the tree's root jcode (eval = generated evalbroker profile)
   $tree = @{}; foreach ($a in $agents) { $tree[[int]$a.ProcessId] = $(if ("$($a.CommandLine)" -match '--provider-profile evalbroker') { 'eval' } else { 'external' }) }
   do { $grew = $false; foreach ($p in $procs) { if (-not $tree.ContainsKey([int]$p.ProcessId) -and $tree.ContainsKey([int]$p.ParentProcessId)) { $tree[[int]$p.ProcessId] = $tree[[int]$p.ParentProcessId]; $grew = $true } } } while ($grew)
-  $conns = @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue)
+  $conns = @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue -ErrorVariable tcpErr)
+  # A sample that could not see processes or connections would report nothing: say so (tripclass flags it) rather
+  # than look clean. "No matching connections" (ObjectNotFound) is not a failure.
+  $realTcpErr = @($tcpErr | Where-Object { "$($_.CategoryInfo.Category)" -ne 'ObjectNotFound' })
+  if ($cimErr -or $procs.Count -eq 0 -or $realTcpErr.Count) { $errText = OneLine ("$cimErr $realTcpErr"); W "TRIP watch-sample-failed processes=$($procs.Count) error=$errText" }
   foreach ($c in $conns) {
     $owner = [int]$c.OwningProcess; $p = $byPid[$owner]
     $name = if ($p) { $p.Name } else { '?' }; $cmd = if ($p) { OneLine $p.CommandLine } else { '' }
-    if ($c.RemotePort -eq $OllamaPort -and $c.RemoteAddress -eq '127.0.0.1') {
+    # any client of the Ollama port, whatever address it dialed (Ollama listens on 127.0.0.1 today; an OLLAMA_HOST change
+    # must not make connections invisible)
+    if ($c.RemotePort -eq $OllamaPort) {
       $ollamaConns++
       if ($owner -ne $MeterPid) { W "TRIP ollama-connection-from-non-meter pid=$owner name=$name cmd=$cmd" }
     }
@@ -51,7 +61,9 @@ while (-not (Test-Path -LiteralPath $Stop)) {
       $isBroker = $p -and $p.Name -ieq 'powershell.exe' -and "$($p.CommandLine)" -match 'run-in-job\.ps1'
       if (-not $isBroker) { W "TRIP meter-connection-from-non-broker pid=$owner name=$name cmd=$cmd" }
     }
-    if ($tree.ContainsKey($owner) -and -not ("$($c.RemoteAddress)" -match '^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$') -and $c.RemoteAddress -ne '::1') {
+    $ra = "$($c.RemoteAddress)"
+    $isLoop = ($ra -match '^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$') -or $ra -eq '::1' -or ($ra -match '^::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+    if ($tree.ContainsKey($owner) -and -not $isLoop) {
       W "TRIP agent-nonloopback-connection pid=$owner remote=$($c.RemoteAddress):$($c.RemotePort) name=$name root=$($tree[$owner])"
     }
   }
