@@ -1,5 +1,7 @@
 # Harness audit (2026-10-04, post hardware-ready checkpoint; second pass in section 21)
 
+Final project status (2026-10-05): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (sections 23-25).
+
 Scope: everything in `evals/` that can affect evidence, done without hardware, without a re-pin and without changing any
 acceptance criterion. Every defect below was fixed in its own commit with a test; nothing in the evidence archive or in
 `evals/results/` was rewritten. Status of the project itself: `evals/PLAN.yaml`, `evals/HANDOFF.md`
@@ -345,3 +347,13 @@ a `name=?` line whose pid resolves to an expected process in the next sample.
   ev-C1-control (1 UNATTRIBUTED -> late-name), which matches TRIP-REVIEW.md. All archived files have the same md5 before and after.
 - Ollama server settings: kept OBSERVED ONLY (no requirement pins them).
 - Housekeeping: classified in HANDOFF "Optional cleanup"; nothing deleted.
+
+### 25 Final closeout (2026-10-05; no run, no evidence rewritten)
+- The project record is synchronized: PLAN, HANDOFF, AUDIT and POST-C-NOTE all say the CPU-only target is intended, no hardware is
+  pending, A3 is authoritative, C is COMPLETE / VALID / DECISION RULE NOT MET with no containment cause, no C-prime, and D is not run and unapproved.
+- `191012e` kept. Final check: 30 tripclass/dgate tests pass. The read-only classifier re-run over the 6 C evidence dirs shows only
+  C1-control's late-name line. 38 archived C files (tripclass, watch.log, TRIP-REVIEW, c-analysis-raw, run logs, results.json)
+  have identical md5 before and after.
+- New `bench/dgate.mjs` (read-only, tests) + `D-GATES.md`: Gate A / Gate B, both PROPOSED - REQUIRES HUMAN APPROVAL. Gate A is
+  BLOCKED on current evidence. Gate B's candidate criterion is met on C's data, but it was written after C, so applying it is post hoc.
+- Housekeeping: classified with exact commands in HANDOFF "Optional cleanup"; nothing deleted.

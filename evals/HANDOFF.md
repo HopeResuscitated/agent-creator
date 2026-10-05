@@ -5,7 +5,8 @@ Updated 2026-10-05 (EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE; C VALID 
 regression, pre-C tooling checks).
 
 ## Where we are
-Containment is proven (all invariants hold; decision rule passed). Last harness-code commit `59ccb11` (2026-10-04
+**Final (2026-10-05): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE** - see "Final status" below. The next sentence
+refers to Phase B (2026-10-03), kept as history: containment is proven (all invariants hold; Phase B decision rule passed). Last harness-code commit `59ccb11` (2026-10-04
 hardening and second audit: classification, failure propagation, monitoring, re-pin automation; see "Post-checkpoint
 hardening" and "Second pre-hardware audit"). No
 evidence was produced by the new code: every authoritative result predates it and is unchanged. All work is local (branch `cierra-wip-2026-09-29`); nothing has been pushed.
@@ -15,7 +16,8 @@ evidence was produced by the new code: every authoritative result predates it an
 ### Evidence classes (how to read every result in this file)
 | Class | What belongs here |
 |---|---|
-| **Authoritative** | Produced on the current pins (A2 jcode `7ed7403f8`/`f76eff11...`, Ollama 0.34.4, model `1ef2c71e...`), AC, no sleep, no external activity: clean A2 validation 2026-10-02, b6 (the authoritative Phase B run), final regression 2026-10-03, gates.sh + T01 x4 2026-10-03, reference agent 18/18 |
+| **Authoritative, final (A3 pins)** | C 2026-10-04/05 (`cycle10-C`): COMPLETE / VALID / DECISION RULE NOT MET |
+| **Authoritative (A2 era)** | Produced on the A2 pins in force then (A2 jcode `7ed7403f8`/`f76eff11...`, Ollama 0.34.4, model `1ef2c71e...`), AC, no sleep, no external activity: clean A2 validation 2026-10-02, b6 (the authoritative Phase B run), final regression 2026-10-03, gates.sh + T01 x4 2026-10-03, reference agent 18/18 |
 | **Historical** | Kept on record, not reinterpreted, not used for authoritative timing: cycles 6-8 (pre-A2 jcode), b5 (battery + sleep), the two CONTAMINATED A2 attempts, superseded pins |
 | **A3 (now the pin)** | A3 (`710560f91`, `42ed4012...`): PINNED 2026-10-04 by REPIN.md steps 1-12 on the CPU target (commit `8295bb7`, record `cycle10-cpu-repin/repin-record.json`); A0-A2/Phase B evidence stays A2 evidence |
 | **CPU-limited (recorded; not a defect)** | T03/T08/T13/T14/T17 and T05's margin time out on this CPU by throughput, not by fault; the quant trial is not feasible here (documented). Not a missing hardware setup: CPU-only execution is the intended target |
@@ -167,7 +169,7 @@ generation; the reference agent passes all 18 tasks; contained and control time 
 pinned model + quant. On this CPU an 8-task suite takes ~2-2.5 h per mode and 5 of the 8 tasks cannot finish in their
 (unchanged) timeouts, so C here would measure CPU limits, not the agent.
 
-### HARDWARE DECISION STILL REQUIRED (yours; Hermes does not select hardware)
+### (HISTORICAL - superseded 2026-10-04 by the CPU-target decision; no hardware decision is pending)
 **GPU / VRAM**: the project does **not** specify a minimum GPU or VRAM, and none is derived here. PLAN only says "local
 NVIDIA GPU with enough VRAM for the chosen quant ... at 32k context, or remote inference via tunnel-to-loopback + egress
 policy". The sizes in FACTS MEASURED are inputs to your decision, not a requirement or a recommendation.
@@ -428,23 +430,36 @@ RULE NOT MET** and is final evidence. The failure was not caused by a containmen
 Criterion 4 is unusually sensitive to isolated model variance: it falsely fails ~35-43% of the time with no containment
 effect (`evals/POST-C-NOTE.md`). **No C-prime is planned**; any other study needs your explicit authorization and its own
 pre-registration.
-- D: not run; gate not chosen. Gate A (needs the existing C rule to pass, so it is blocked by C) and Gate B (needs a
-  separately approved containment-regression criterion) are both PROPOSED - REQUIRES HUMAN APPROVAL (PLAN `D_gate.proposal`).
+- A3 is the authoritative pin. No hardware work is pending.
+- D: not run; unapproved; gate not chosen. Gate A (needs the existing C rule to pass, so it is blocked by C) and Gate B (needs a
+  separately approved containment-regression criterion) are both PROPOSED - REQUIRES HUMAN APPROVAL (`evals/D-GATES.md`;
+  read-only check `evals/bench/dgate.mjs`).
 - TRIP: `tripclass.mjs` attributes the C1-control-style sampling race (control mode only; same pid becomes the eval jcode
   within 15 s) as `control-expected-late-name`; contained mode is unchanged. Archived trip files are not rewritten.
 - Ollama server settings: OBSERVED ONLY (no project requirement pins them).
 
-## Optional cleanup (nothing deleted)
-| Item | Class | Note |
+## Optional cleanup (nothing deleted; every item needs your judgment or is in Ollama's own folder)
+| Item | Class | Exact action if you choose it |
 |---|---|---|
-| `%TEMP%\agent-evals`: 118 roots with a `evals/results/<same name>` dir (incl. the 6 C runs) | useful evidence | workspaces behind recorded results (C's T17 CSVs were read from them); keep |
-| 1 root named only in the archive | useful evidence | keep |
-| 25 roots referenced nowhere (2026-09-30, 10-02 x2, 21 from 2026-10-04 17:17-20:45 UTC = pre-C tooling/lifecycle tests, `manual-pre-baseline-contaminated`) | ambiguous / probably safe | not proven temporary from names alone; review the list, then delete if you want the space |
-| staged Ollama 0.35.1 installer (`%LOCALAPPDATA%\Ollama\updates_v2\d5a1390e...\OllamaSetup.exe`, 1.58 GB) | safe to delete, not rollback | it is the upgrade, not a 0.34.4 rollback; auto-update is OFF; left alone (Ollama's own folder) |
-Total roots now 144 (131 when last counted, plus the C runs and later tests).
+| 118 `%TEMP%\agent-evals` roots with a same-name `evals/results` dir (incl. the 6 C runs) | evidence | keep |
+| 1 root named only in the archive | evidence | keep |
+| 21 roots `2026-10-04-17-17_baseline` .. `2026-10-04-20-45_ollama-hermes-local-32k` (10-04 12:17-15:46 local, before C; T01/T05 only; ~4.4 GiB) | safe to delete (likely): pre-C tooling/lifecycle tests, no results dir, not named in any archive/doc | `cd "$LOCALAPPDATA/Temp/agent-evals" && rm -rf 2026-10-04-17-* 2026-10-04-18-* 2026-10-04-19-* 2026-10-04-20-*` (check `ls -d 2026-10-04-1[7-9]-* 2026-10-04-20-*` lists exactly 21 first; C's roots start at 2026-10-04-23-26) |
+| `2026-09-30-03-16_openai-compatible-g3f-scripted`, `2026-10-02-04-34_...`, `2026-10-02-20-52_...` (~0.5 GiB) | ambiguous: dev/scripted runs, no results dir | delete by name if you don't need them |
+| `manual-pre-baseline-contaminated` (T13, 2026-09-29, ~0.1 GiB) | ambiguous: the name marks a kept contaminated sample | keep unless you know it is disposable |
+| staged Ollama 0.35.1 installer `%LOCALAPPDATA%\Ollama\updates_v2\d5a1390e...\OllamaSetup.exe` (1.58 GB) | safe to delete; NOT rollback (it is the upgrade; 0.34.4 is installed; auto-update OFF) | `rm -rf "$LOCALAPPDATA/Ollama/updates_v2/d5a1390e1510962fac384c97d09b6e4febbffa2797435085c39a80b809b3be06"` with Ollama's tray app quit |
+Total roots: 144.
+
+## Push readiness (nothing pushed; remotes unchanged)
+| Repo / ref | Local | Remote | Relationship |
+|---|---|---|---|
+| agent-creator `cierra-wip-2026-09-29` | `8dc909b`+ (this closeout) | origin `HopeResuscitated/agent-creator` at `6ca495a` | local is a fast-forward of origin (60+ commits ahead); `git push origin cierra-wip-2026-09-29` |
+| agent-creator `main` | `bc61c8f` | origin/main `ed2e2ac` | 5 local commits ahead (pre-eval work, not part of this closeout); push only if intended |
+| agent-creator tag `eval-baseline-v1` (sandbox source) | `0320142` | NOT on origin | `git push origin eval-baseline-v1` if the remote should reproduce sandboxes |
+| jcode-evalpin `eval-pin-74577fe83` (A2) | `7ed7403f8` | no upstream; origin is third-party `1jehuang/jcode` (no eval-pin refs there) | base `74577fe83` on upstream master + 2 commits |
+| jcode-evalpin `eval-pin-a3-candidate` (A3, the pin) | `710560f91` | no upstream | descends from A2 (+1 commit; 3 over master). Pushing needs a remote YOU own (e.g. a fork); do not push to the third-party origin by default |
 
 ## Open decisions (yours)
-1. **D gate**: adopt Gate A, Gate B, or neither (PLAN `D_gate.proposal`). D not run.
+1. **D gate**: adopt Gate A, Gate B, or neither (`evals/D-GATES.md`). D not run.
 2. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
 3. **Optional housekeeping**: the table above.

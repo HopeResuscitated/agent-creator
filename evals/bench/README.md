@@ -42,6 +42,8 @@ Evidence and analysis
   tripclass.mjs    attributes every TRIP line (harness warm-up / gate / probe / control-expected[-late-name] / control-egress /
                    loopback-misreported / VIOLATION / UNATTRIBUTED); exit 1 if any VIOLATION/UNATTRIBUTED. suite.sh
                    writes ev-<label>/tripclass.txt
+  dgate.mjs        read-only report of the two PROPOSED D gates (--gate A | --gate B --archive <dir>); starts nothing,
+                   approves nothing (evals/D-GATES.md)
   ollamaenv.mjs    the running Ollama server's effective settings (server.log "server config"); --expect compares with
                    ollama-server-env.observed.json (OBSERVED, not pinned); suite.sh records it and the server start time
   fp.mjs / fpcmp.mjs   repo fingerprint and comparison (runner-owned evals/results ignored)

@@ -1,5 +1,9 @@
 # Post-C design note: criterion 4 (2026-10-05)
 
+Project status: EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE. The CPU-only machine is the intended target; no
+hardware work is pending; A3 is the authoritative pin. Containment did not cause the failure. D is not run and unapproved
+(`evals/D-GATES.md`).
+
 This note documents a lesson. It does not change C. C's authoritative result stays **COMPLETE / DECISION RULE NOT MET / VALID**
 (PLAN `C_rebaseline`). The registered criterion stays as written, and no replacement criterion is adopted here.
 

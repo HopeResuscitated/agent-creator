@@ -507,8 +507,8 @@ phases:
                    preregistration commit; stop on any reduced.sh STOP (exit 3/4/6/7/8/10/11/130) - an integrity/environment
                    event, not a result. No repo edit during the run"
     preregistration_format: "what cpreflight checks for, i.e. the items REPIN.md step 13 already requires, under
-                C_rebaseline.preregistration: { tasks, reps, order, timeouts, decision_rule, quant }. NOT filled in: pre-registration
-                is the user's step after the re-pin. Format only; it adds no criterion"
+                C_rebaseline.preregistration: { tasks, reps, order, timeouts, decision_rule, quant }. Filled in and approved
+                2026-10-04, before C (see preregistration). Format only; it adds no criterion"
     tasks: [T13, T14, T17, T04, T05, T03, T08, T01]
     design: "3 reps per mode, alternating; paired analysis across tasks; pre-registered before running"
     primary_metrics: [incomplete_stream_rate, retry_recovery_rate, invariants]
@@ -544,9 +544,9 @@ phases:
                       settings were constant for every authoritative run (one server process since 2026-09-28) and each run
                       records them; pinning would be a new baseline requirement, not added"
   D_gate:
-    status: "BLOCKED - not run, not approved. C is COMPLETE but its pre-registered decision rule is NOT MET (criterion 4), so the
-             proposal's own condition 1 ('C passes its decision rule') is not satisfied. D stays blocked unless the human
-             explicitly changes D's definition (or a separately pre-registered C-prime is run and passes, if so defined)"
+    status: "NOT RUN, unapproved, gate not chosen. Gate A (existing C rule must pass) is BLOCKED by C's final result; Gate B
+             (separately approved containment-regression criterion) needs human approval of the criterion. Decision-ready
+             options: evals/D-GATES.md; read-only check: evals/bench/dgate.mjs --gate A|B"
     definition: "NOT ADOPTED - nothing beyond 'after C' is a requirement"
     proposal: "PROPOSED, NOT APPROVED. Two alternative gates, neither chosen; each PROPOSED - REQUIRES HUMAN APPROVAL.
                Gate A (PROPOSED - REQUIRES HUMAN APPROVAL): D requires the existing C rule to pass. C is final and did not pass,
@@ -582,7 +582,7 @@ phases:
                runs overwrote each other (f26e6ff)"]
     tests: "node --test evals/test/*.test.mjs (offline, seconds) + lint.sh + suite-lifecycle.sh 5/5 + watch-smoke.sh + a3offline PASS"
 checkpoint: "EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (2026-10-05). CPU-only target is intentional; no GPU requirement,
-             no pending hardware work. A3 pinned; Ollama 0.34.4; C VALID / DECISION RULE NOT MET is the final CPU evaluation unless
+             no pending hardware work. A3 pinned and authoritative; containment did not cause the failure; no C-prime planned; Ollama 0.34.4; C VALID / DECISION RULE NOT MET is the final CPU evaluation unless
              the user authorizes a different study. D not run, gate not chosen. Nothing pushed"
 evidence_classes:
   authoritative: ["clean A2 validation 2026-10-02 (validation_a2_clean)", "b6 = the authoritative Phase B run", "final regression 2026-10-03",
@@ -594,7 +594,7 @@ evidence_classes:
   hardware_dependent: ["none - the CPU-only machine is the intentional target"]
   proposed_not_approved: ["D_gate.proposal"]
 human_decisions:      # open; Hermes does not decide these (status.mjs --check requires this list)
-  - "D gate: adopt Gate A, Gate B, or neither (D_gate.proposal; both PROPOSED - REQUIRES HUMAN APPROVAL). D not run"
+  - "D gate: adopt Gate A, Gate B, or neither (evals/D-GATES.md; both PROPOSED - REQUIRES HUMAN APPROVAL). D not run"
   - "push: whether/where to push cierra-wip-2026-09-29 and the jcode-evalpin branches"
   - "optional housekeeping: %TEMP%/agent-evals sandbox roots and the staged Ollama 0.35.1 installer (HANDOFF 'Optional cleanup')"
 known_limitations:
