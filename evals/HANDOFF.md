@@ -414,10 +414,17 @@ Containment did not lower the score; the rule as registered is still not met, an
 Limits: CPU throughput = 6 grader-PASS timeouts (T13 x4, T08, T05); model = T14 0/6, T08 grader FAILs, T13 in C3, T17 once;
 harness defects affecting a result = none (one control TRIP line reviewed: watcher sampling race, `ev-C1-control/TRIP-REVIEW.md`).
 
+## C post-analysis (2026-10-05; PLAN `C_post_analysis`; `cycle10-C/post-analysis/ANALYSIS.md`)
+C is VALID and FAILED its rule; the result is not changed. Both disagreements are model behaviour, not harness or containment:
+T05 C3-control fixed the bug by +159 s, then looped (3 summary files, repeated tests) until the 1200 s kill (throughput was normal);
+T17 C1-control wrote the CSV in one shot with three rows in the wrong date order and never verified it (other 5 runs: identical correct file).
+Criterion 4 with 3 reps fails ~35-43% of the time with no containment effect (simulation), so re-running the same rule is not
+justified; any new run is a separately pre-registered C-prime that cannot replace C. D stays blocked.
+
 ## Open decisions (yours)
-1. **C outcome**: accept C as failed-as-registered (criterion 4), or decide what follows (a new pre-registered run, or an
-   amended rule for future runs only). The registered rule is not changed after the fact.
-2. **D**: adopt/change/reject `D_gate.proposal`; its condition "C passes" is not met. D not run.
+1. **C outcome**: (a) accept "C FAILED, model variability documented" as final, or (b) pre-register a separate C-prime
+   (options in the post-analysis memo). C itself is not re-run or amended.
+2. **D**: blocked; it proceeds only if you change its definition (or define C-prime passing as its gate). D not run.
 3. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
 4. **D gate definition** (adopt / change / reject the PROPOSAL in Coverage): needed before D, not before C. If adopted,

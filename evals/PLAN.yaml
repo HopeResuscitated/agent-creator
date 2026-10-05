@@ -520,9 +520,22 @@ phases:
                          "C pre-registered in this file (tasks, reps, order, timeouts, decision rule) before the first C run", "machine on AC and exclusive"]
     preconditions_done: ["A3 adopted as candidate (2026-10-03; becomes authoritative only via REPIN.md)", "repo AGENTS.md corrected (HEAD); C keeps eval-baseline-v1, whose AGENTS.md still has the old text
                          (sandboxes come from the tag, not HEAD) - same text in every run, so no contained-vs-control bias"]
+  C_post_analysis:
+    status: "DONE 2026-10-05 (additive; C's result above is unchanged: COMPLETE, DECISION RULE NOT MET)"
+    evidence: "hermes-bench-archive/cycle10-C/post-analysis (ANALYSIS.md, decision-rule-simulation.txt, scripts, T17 CSVs)"
+    validity: "A - C is VALID and FAILED its rule. No integrity or harness defect found in the four affected runs; the
+               two disagreements are model behaviour (T05 C3-control: fixed by +159 s then looped to the 1200 s kill; T17
+               C1-control: one-shot hand-written CSV, rows mis-sorted, no verification)"
+    criterion_4: "arithmetic verified (6/72 vs 0/24). With 3 reps and these task pass rates (5/6 on T05, T17) the
+                  criterion fails ~35-43% of the time with NO containment effect (simulation), so it is very sensitive to
+                  ordinary model variance; that is an observation about the rule, not a reason to reinterpret C"
+    rerun: "NOT REQUIRED for C's question. Re-running the SAME rule is not justified (it would mostly re-sample model
+            variance). A new run is justified only under a new, separately pre-registered hypothesis/rule (C-prime), which must
+            not overwrite or replace C - human decision"
   D_gate:
-    status: "NOT RUN - not approved. C is COMPLETE but its pre-registered decision rule is NOT MET (criterion 4), so the
-             proposal's own condition 1 ('C passes its decision rule') is not satisfied; whether D may proceed is a human decision"
+    status: "BLOCKED - not run, not approved. C is COMPLETE but its pre-registered decision rule is NOT MET (criterion 4), so the
+             proposal's own condition 1 ('C passes its decision rule') is not satisfied. D stays blocked unless the human
+             explicitly changes D's definition (or a separately pre-registered C-prime is run and passes, if so defined)"
     definition: "NOT ADOPTED - nothing beyond 'after C' is a requirement"
     proposal: "PROPOSED, NOT APPROVED (Hermes; user decides before D, not needed for C): 1) C passes its decision rule; 2) one 18-task
                contained + control run on the final pin (T02 T06 T07 T09-T12 T15 T16 T18 otherwise never run on it)"
