@@ -1,6 +1,6 @@
 # Harness audit (2026-10-04, post hardware-ready checkpoint; second pass in section 21)
 
-Final project status (2026-10-05, frozen): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (sections 23-27).
+Final project status (2026-10-05, frozen): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (sections 23-28).
 
 Scope: everything in `evals/` that can affect evidence, done without hardware, without a re-pin and without changing any
 acceptance criterion. Every defect below was fixed in its own commit with a test; nothing in the evidence archive or in
@@ -388,3 +388,22 @@ a `name=?` line whose pid resolves to an expected process in the next sample.
 - D preflight: `dgate.mjs --preflight --live` reuses cpreflight's static/live/test checks, minus the C-only plan-c-* checks.
 - The `reduced.sh` guard test now uses an unapproved PLAN via `DGATE_PLAN`. Running the suite therefore cannot start D
   now that the committed PLAN is approved.
+
+### 28 D launch attempt 1: guard path defect (2026-10-05 16:03 CDT; no D task ran)
+- What happened: `dgate.mjs --preflight --live --warm` printed READY FOR D (29/29). The `reduced.sh` D guard then called
+  `"$NODE_BIN" "$BENCH/dgate.mjs"`.
+  - `$BENCH` is an MSYS path (`/c/...`). The native node.exe cannot resolve that path (MODULE_NOT_FOUND).
+  - The guard failed closed (exit 2), so D1-contain was refused before `reduced.sh` created anything.
+- Classification: an infrastructure defect in the guard, not a model or containment event. No task ran and no
+  D evidence exists.
+- Why the tests missed it: the guard test accepted any refusal, including this crash.
+- Attempt-1 logs are preserved in `cycle11-D/attempt1-guard-defect/`.
+- Fix: the guard now passes `$(cygpath -m "$BENCH")/dgate.mjs`, the same form suite.sh uses for every node script.
+- Regression tests (`dgate.test.mjs`):
+  - The refusal test now requires dgate's own `D BLOCKED` verdict and no MODULE_NOT_FOUND.
+  - A new test drives `reduced.sh` with a temporary PLAN. It checks that Gate A with C NOT MET is refused through the
+    guard, and that an approved PLAN passes the guard to the per-run gate. A wrong `--expect-head` then stops it at
+    exit 3, so nothing is run.
+  - Both tests fail on the old `reduced.sh` (RED) and pass on the fix.
+- No D criterion, run shape, timeout, grader or evidence requirement changed. The pre-registration requires a clean
+  tree at the launch commit; D relaunches at the fix commit.

@@ -59,7 +59,25 @@ test('reduced.sh refuses a D label before creating anything (unapproved PLAN via
   const sh = fileURLToPath(new URL('../bench/reduced.sh', import.meta.url));
   for (const label of ['D1-contain:contain', 'd2-control:control', 'D-x:contain']) {
     const r = spawnSync('bash', [sh, '--out', out, label], { encoding: 'utf8', env: { ...process.env, NODE_BIN: process.execPath.split(path.sep).join('/'), DGATE_PLAN: plan } });
-    assert.equal(r.status, 2, `${label}: ${r.stdout}${r.stderr}`); assert.match(r.stdout + r.stderr, /D BLOCKED|refusing D run/);
+    assert.equal(r.status, 2, `${label}: ${r.stdout}${r.stderr}`);
+    // the guard must have actually RUN dgate (its own verdict), not refused because node could not load it
+    assert.match(r.stdout, /D BLOCKED/); assert.doesNotMatch(r.stdout + r.stderr, /Cannot find module|MODULE_NOT_FOUND/);
     assert.ok(!fs.existsSync(out), 'no output dir created');
   }
+});
+
+test('reduced.sh guard lets an approved, pre-registered D through to the per-run gate (stopped there by a wrong --expect-head)', () => {
+  const out = path.join(os.tmpdir(), `dguard-ok-${process.pid}`);
+  const plan = path.join(os.tmpdir(), `dguard-okplan-${process.pid}.yaml`);
+  const pre = 'tasks: [T01]\n      reps: 1\n      order: x\n      timeouts: unchanged\n      decision_rule: [B1]\n      evidence_dir: x';
+  fs.writeFileSync(plan, `phases:\n  C_rebaseline: { status: "COMPLETE - DECISION RULE NOT MET" }\n  D_gate:\n    approval: { gate: A, approved_by: test, date: "2026-10-05" }\n    preregistration:\n      ${pre}\n`);
+  // Gate A with C NOT MET must still be refused: proves the guard evaluates the gate condition through reduced.sh
+  const sh = fileURLToPath(new URL('../bench/reduced.sh', import.meta.url));
+  const env = { ...process.env, NODE_BIN: process.execPath.split(path.sep).join('/'), DGATE_PLAN: plan };
+  let r = spawnSync('bash', [sh, '--out', out, 'D1-contain:contain'], { encoding: 'utf8', env });
+  assert.equal(r.status, 2); assert.match(r.stdout, /Gate A not met/);
+  fs.writeFileSync(plan, `phases:\n  C_rebaseline: { status: "COMPLETE - DECISION RULE MET" }\n  D_gate:\n    approval: { gate: A, approved_by: test, date: "2026-10-05" }\n    preregistration:\n      ${pre}\n`);
+  r = spawnSync('bash', [sh, '--out', out, '--expect-head', '0000000', 'D1-contain:contain'], { encoding: 'utf8', env });
+  assert.match(r.stdout, /READY FOR D/, r.stdout + r.stderr); assert.equal(r.status, 3, r.stdout + r.stderr); assert.match(r.stdout, /GATE FAIL: HEAD/);
+  fs.rmSync(out, { recursive: true, force: true }); fs.rmSync(plan, { force: true });
 });

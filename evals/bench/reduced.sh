@@ -23,7 +23,7 @@ done
 [ -n "$OUT" ] && [ ${#RUNS[@]} -gt 0 ] || { echo "usage: reduced.sh --out <dir> [--tasks ..] [--ref f] [--expect-head sha] <label>:<mode> ..." >&2; exit 2; }
 # D start guard: a D<n>-* label never runs without a human-approved D gate + D pre-registration (dgate.mjs --preflight,
 # fails closed; PLAN phases.D_gate). Checked before anything is created.
-for r in "${RUNS[@]}"; do case "$r" in [Dd][0-9]*|[Dd]-*) "$NODE_BIN" "$BENCH/dgate.mjs" --preflight || { echo "reduced.sh: refusing D run '$r' (no approved D gate / D pre-registration; see evals/D-GATES.md)" >&2; exit 2; }; break ;; esac; done
+for r in "${RUNS[@]}"; do case "$r" in [Dd][0-9]*|[Dd]-*) "$NODE_BIN" "$(cygpath -m "$BENCH")/dgate.mjs" --preflight || { echo "reduced.sh: refusing D run '$r' (no approved D gate / D pre-registration; see evals/D-GATES.md)" >&2; exit 2; }; break ;; esac; done
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); LOG=$OUT/reduced.log
 gate() {
   echo "--- gate $1 $(date -Iseconds)" | tee -a "$LOG"
