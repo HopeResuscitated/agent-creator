@@ -39,7 +39,7 @@ Evidence and analysis
   meter.mjs        trusted-side HTTP meter between broker/agent and Ollama (METER_LOG, METER_RAW, METER_LISTEN, METER_UPSTREAM)
   watch.ps1        watchdog: TRIP on Ollama/meter connections from the wrong process, agent non-loopback
                    connections (loopback = 127.0.0.0/8 and ::1; root=eval|external), writes to the outside canary dir
-  tripclass.mjs    attributes every TRIP line (harness warm-up / gate / probe / control-expected / control-egress /
+  tripclass.mjs    attributes every TRIP line (harness warm-up / gate / probe / control-expected[-late-name] / control-egress /
                    loopback-misreported / VIOLATION / UNATTRIBUTED); exit 1 if any VIOLATION/UNATTRIBUTED. suite.sh
                    writes ev-<label>/tripclass.txt
   ollamaenv.mjs    the running Ollama server's effective settings (server.log "server config"); --expect compares with

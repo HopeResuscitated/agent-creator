@@ -16,6 +16,10 @@
 //                           older watch.ps1 (before its 127.0.0.0/8 / mapped-loopback fixes)
 //   VIOLATION               contained mode: agent non-loopback connection, or a non-broker meter client; any mode:
 //                           outside-dir-written
+//   control-expected-late-name  control mode only: a meter-connection-from-non-broker line whose process was caught
+//                           before Windows exposed it (name=? cmd= empty) AND the SAME pid is control-expected (the eval
+//                           jcode --provider-profile evalbroker) in a later sample at most LATE_NAME_MS (15 s) afterwards.
+//                           Never applies in contained mode (that line stays VIOLATION) or to any other TRIP kind.
 //   UNATTRIBUTED            anything else (e.g. another program talking to Ollama during the window), including any line
 //                           that mentions TRIP but does not parse (truncated/garbled) and watch-sample-failed lines
 // Exit 0 when every TRIP is attributed, 1 when any line is VIOLATION or UNATTRIBUTED, 2 usage.
@@ -80,15 +84,31 @@ export function warmupWindow(evDir) {
   if (ss && toMs(ss) !== null) return [toMs(ss) - 1000, toMs(ss) + 15000];
   return null;
 }
+/** Max gap between a nameless control-mode meter line and the same pid's attributed sample (watch.ps1 samples ~10 s). */
+export const LATE_NAME_MS = 15000;
 export function classifyLog(text, ctx0) {
   const ctx = { warmPids: new Set(), ...ctx0 }; // warm-up curl pids first seen inside the window (lines are in time order)
   const counts = {}; const flagged = [];
+  const rows = []; // { t, c } in log order; unparsed TRIP lines keep t = null
   for (const line of text.split(/\r?\n/)) {
     const t = parseTrip(line);
     // A line that mentions TRIP but does not parse (truncated write, garbled, leading junk) is never dropped.
-    if (!t) { if (/TRIP/.test(line)) { counts.UNATTRIBUTED = (counts.UNATTRIBUTED ?? 0) + 1; flagged.push(`UNATTRIBUTED (unparsed TRIP line) ${line}`); } continue; }
-    const c = classifyTrip(t, ctx); counts[c] = (counts[c] ?? 0) + 1;
-    if (c === 'VIOLATION' || c === 'UNATTRIBUTED') flagged.push(`${c} ${t.raw}`);
+    if (!t) { if (/TRIP/.test(line)) rows.push({ t: null, c: 'UNATTRIBUTED', raw: `(unparsed TRIP line) ${line}` }); continue; }
+    rows.push({ t, c: classifyTrip(t, ctx), raw: t.raw });
+  }
+  // Sampling race (control mode only): the watcher saw the meter connection before the new process had a name. Attribute
+  // it only when the SAME pid is control-expected in a later sample within LATE_NAME_MS; otherwise it stays UNATTRIBUTED.
+  if (ctx.mode === 'control') rows.forEach((r, i) => {
+    const t = r.t;
+    if (!t || r.c !== 'UNATTRIBUTED' || t.kind !== 'meter-connection-from-non-broker' || !t.pid || !(t.name === '?' || t.name === null) || t.cmd !== '') return;
+    const t0 = toMs(t.time); if (t0 === null) return;
+    const hit = rows.slice(i + 1).find((q) => q.t && q.t.pid === t.pid && q.t.kind === t.kind && q.c === 'control-expected' &&
+      toMs(q.t.time) !== null && toMs(q.t.time) >= t0 && toMs(q.t.time) - t0 <= LATE_NAME_MS);
+    if (hit) r.c = 'control-expected-late-name';
+  });
+  for (const r of rows) {
+    counts[r.c] = (counts[r.c] ?? 0) + 1;
+    if (r.c === 'VIOLATION' || r.c === 'UNATTRIBUTED') flagged.push(`${r.c} ${r.raw}`);
   }
   return { counts, flagged, total: Object.values(counts).reduce((a, b) => a + b, 0) };
 }

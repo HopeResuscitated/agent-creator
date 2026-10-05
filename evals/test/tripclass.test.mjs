@@ -60,3 +60,32 @@ test('agent egress root: external jcode tree is never attributed', () => {
   assert.equal(C(ext, 'control'), 'UNATTRIBUTED'); assert.equal(C(ext, 'contain'), 'UNATTRIBUTED');
   assert.equal(C(ev, 'control'), 'control-egress'); assert.equal(C(ev, 'contain'), 'VIOLATION');
 });
+
+// Sampling race seen once in C (ev-C1-control, pid 36180): first sample name=? cmd= empty, next sample the eval jcode.
+const nameless = (time, pid = 36180) => `${time} TRIP meter-connection-from-non-broker pid=${pid} name=? cmd=`;
+const evalMeter = (time, pid = 36180) => `${time} TRIP meter-connection-from-non-broker pid=${pid} name=jcode.exe cmd="C:\\Users\\cierra\\jcode-evalpin-a3cand-bin\\jcode.exe" -p openai-compatible --provider-profile evalbroker -m hermes-local-32k run --no-update "task"`;
+const L2 = (lines, mode) => classifyLog(lines.join('\n'), { mode, warmup: null });
+test('late-name: control, same pid control-expected 10 s later -> attributed, nothing flagged', () => {
+  const r = L2([nameless('2026-10-04T21:20:51'), evalMeter('2026-10-04T21:21:01')], 'control');
+  assert.deepEqual(r.counts, { 'control-expected-late-name': 1, 'control-expected': 1 }); assert.equal(r.flagged.length, 0);
+});
+test('late-name never applies in contained mode', () => {
+  const r = L2([nameless('2026-10-04T21:20:51'), evalMeter('2026-10-04T21:21:01')], 'contain');
+  assert.deepEqual(r.counts, { VIOLATION: 2 }); assert.equal(r.flagged.length, 2);
+});
+test('late-name stays UNATTRIBUTED: no follow-up, different pid, too late, earlier only, or non-eval process', () => {
+  const cases = [
+    [nameless('2026-10-04T21:20:51')],
+    [nameless('2026-10-04T21:20:51'), evalMeter('2026-10-04T21:21:01', 999)],
+    [nameless('2026-10-04T21:20:51'), evalMeter('2026-10-04T21:21:07')],
+    [evalMeter('2026-10-04T21:20:41'), nameless('2026-10-04T21:20:51')],
+    [nameless('2026-10-04T21:20:51'), '2026-10-04T21:21:01 TRIP meter-connection-from-non-broker pid=36180 name=node.exe cmd="C:\\x\\node.exe" other.mjs'],
+  ];
+  for (const c of cases) { const r = L2(c, 'control'); assert.equal(r.counts['control-expected-late-name'] ?? 0, 0, c.join(' / ')); assert.ok(r.flagged.some((f) => /name=\? cmd=$/.test(f)), c.join(' / ')); }
+});
+test('late-name does not touch nameless Ollama clients or nameless lines with a command line', () => {
+  const r = L2(['2026-10-04T21:20:51 TRIP ollama-connection-from-non-meter pid=36180 name=? cmd=', evalMeter('2026-10-04T21:21:01')], 'control');
+  assert.equal(r.counts.UNATTRIBUTED, 1);
+  const r2 = L2(['2026-10-04T21:20:51 TRIP meter-connection-from-non-broker pid=36180 name=? cmd=x.exe', evalMeter('2026-10-04T21:21:01')], 'control');
+  assert.equal(r2.counts.UNATTRIBUTED, 1);
+});
