@@ -86,7 +86,7 @@ export function loadArchive(dir) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2); const flag = (n) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : undefined; };
   const g = flag('gate');
-  console.log('D gate evaluation - PROPOSED, REQUIRES HUMAN APPROVAL; informational only, D is not started by this script');
+  console.log('D gate evaluation (approval state: PLAN phases.D_gate.approval); read-only, D is never started by this script');
   try {
     if (g === 'A') {
       const { default: yaml } = await import('js-yaml');
