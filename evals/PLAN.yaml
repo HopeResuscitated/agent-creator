@@ -7,7 +7,7 @@ branch: cierra-wip-2026-09-29      # PUSH STATE UNRESOLVED: origin has this bran
                                    # origin by the commits under harness_commits (15 at the 2026-10-03 pre-C docs commit).
                                    # Hermes has not pushed. jcode-evalpin has no upstream configured; also never pushed.
 head: 3d710ab                      # C ran at this HEAD; last code/docs commit 2026-10-05 (C result recorded); see harness_commits
-updated: 2026-10-04
+updated: 2026-10-05
 
 pins:                              # the evaluation contract; run.ts refuses (exit 2) on any mismatch
   node: "patched node 26.7.0 (A0, 14f50f2)"
@@ -418,7 +418,7 @@ phases:
               "relay 12/12, contained-e2e 9/9", "meter kill-abort ttfb 176 ms", "zero-task suites contained + control: exit 0, AC, no sleep, TRIP 0",
               "repo fingerprint + git status + ~/.jcode unchanged"]
   C_rebaseline:
-    status: "COMPLETE (2026-10-05) - executed exactly as pre-registered; DECISION RULE NOT MET: 4 of 5 criteria hold, criterion 4
+    status: "COMPLETE (2026-10-05) - VALID - FINAL EVIDENCE; executed exactly as pre-registered; DECISION RULE NOT MET: 4 of 5 criteria hold, criterion 4
              (contained-vs-control <= contained-vs-contained) fails 8.3% vs 0.0% - see result.decision_rule. Not re-run, not reinterpreted"
     result:
       run: "2026-10-04 18:26 -> 2026-10-05 09:50 (15 h 24 min), HEAD 3d710ab (clean, preregistration commit 8046747 + test fix),
@@ -529,21 +529,39 @@ phases:
     criterion_4: "arithmetic verified (6/72 vs 0/24). With 3 reps and these task pass rates (5/6 on T05, T17) the
                   criterion fails ~35-43% of the time with NO containment effect (simulation), so it is very sensitive to
                   ordinary model variance; that is an observation about the rule, not a reason to reinterpret C"
-    rerun: "NOT REQUIRED for C's question. Re-running the SAME rule is not justified (it would mostly re-sample model
-            variance). A new run is justified only under a new, separately pre-registered hypothesis/rule (C-prime), which must
-            not overwrite or replace C - human decision"
+    containment: "no containment violation caused the failure; no demonstrated containment regression (no contained-only
+                  failure; containment lowered no score)"
+    rerun: "NONE. C is final evidence (user, 2026-10-05). Re-running the same rule would be pass-chasing; NO C-PRIME IS
+            PLANNED - one would need a new hypothesis and its own pre-registration and could not overwrite C. Design lesson:
+            evals/POST-C-NOTE.md"
+    trip_policy: "tripclass.mjs gained class control-expected-late-name (2026-10-05): CONTROL mode only, kind
+                  meter-connection-from-non-broker only, name=? and empty cmd, and the SAME pid is control-expected (eval jcode
+                  --provider-profile evalbroker) in a later sample <= 15 s after. Contained mode is unchanged (still VIOLATION).
+                  Diagnostic for FUTURE runs: archived tripclass.txt / watch.log / TRIP-REVIEW.md are not rewritten (re-run read-only
+                  over all 6 C evidence dirs: only ev-C1-control changes, 1 UNATTRIBUTED -> late-name, matching TRIP-REVIEW.md).
+                  Suite exit code on NEEDS REVIEW unchanged (marker file only); making it fail the suite stays a future option"
+    ollama_settings: "OBSERVED ONLY (unchanged). No project requirement pins them: run.ts pins version + model digest; server
+                      settings were constant for every authoritative run (one server process since 2026-09-28) and each run
+                      records them; pinning would be a new baseline requirement, not added"
   D_gate:
     status: "BLOCKED - not run, not approved. C is COMPLETE but its pre-registered decision rule is NOT MET (criterion 4), so the
              proposal's own condition 1 ('C passes its decision rule') is not satisfied. D stays blocked unless the human
              explicitly changes D's definition (or a separately pre-registered C-prime is run and passes, if so defined)"
     definition: "NOT ADOPTED - nothing beyond 'after C' is a requirement"
-    proposal: "PROPOSED, NOT APPROVED (Hermes; user decides before D, not needed for C): 1) C passes its decision rule; 2) one 18-task
-               contained + control run on the final pin (T02 T06 T07 T09-T12 T15 T16 T18 otherwise never run on it)"
-    preparation_if_adopted: "NOT A REQUIREMENT - implementation burden only. 1) C result: C's own analysis (no new code). 2) 18-task run:
+    proposal: "PROPOSED, NOT APPROVED. Two alternative gates, neither chosen; each PROPOSED - REQUIRES HUMAN APPROVAL.
+               Gate A (PROPOSED - REQUIRES HUMAN APPROVAL): D requires the existing C rule to pass. C is final and did not pass,
+               so under Gate A D cannot proceed with the current evidence (it would need a new, separately authorized study).
+               Gate B (PROPOSED - REQUIRES HUMAN APPROVAL): D requires a separately approved containment-regression criterion
+               (e.g. 'no task contained-majority-fail while control-majority-pass', plus invariants, fingerprints, no
+               contained-only containment error), to be defined, registered and applied to evidence only after human
+               approval; it is not applied to C here. Either gate then adds: one 18-task contained + control run on the
+               final pin (T02 T06 T07 T09-T12 T15 T16 T18 otherwise never run on it)"
+    preparation_if_adopted: "NOT A REQUIREMENT - implementation burden only. Does NOT assume C passed. 1) gate: Gate A = C's
+               recorded result (currently NOT MET -> D blocked); Gate B = the approved criterion and the evidence it names. 2) 18-task run:
                the existing reduced.sh / suite.sh with --only <all 18> per mode on the final pin, gated by cpreflight-style checks; no
                new harness code. Missing pieces, if adopted: a pre-registered D decision rule (pass threshold? equivalence?), D timeouts
-               for the 10 non-C tasks (decided with the hardware like C's), and a D preflight variant requiring C=PASS. Wall time on the
-               new hardware unknown (on this CPU 8 tasks took ~2-2.5 h per mode)"
+               for the 10 non-C tasks (decided with the hardware like C's), and a D preflight variant checking the chosen gate (not C=PASS
+               implicitly). Wall time on this CPU target: C took ~2.5 h per 8-task suite; 18 tasks per mode would be longer"
   pre_C_preparation:
     status: "COMPLETE 2026-10-03 - non-hardware work only; C not started, nothing re-baselined, A3 not pinned, Ollama not changed, nothing pushed"
     done: ["A3 adopted and prepared (above)", "evals/REPIN.md: deterministic re-pin sequence with pass conditions",
@@ -563,27 +581,22 @@ phases:
                malformed; ttfb median included 0s (3fa1a60)", "Ollama restart mid-suite became model FAILs (8336189)", "same-minute
                runs overwrote each other (f26e6ff)"]
     tests: "node --test evals/test/*.test.mjs (offline, seconds) + lint.sh + suite-lifecycle.sh 5/5 + watch-smoke.sh + a3offline PASS"
-checkpoint: "HARDWARE-READY 2026-10-04 (re-confirmed after post_checkpoint_hardening): all non-hardware work done; C NOT STARTED; no
-             re-baseline; A2 pin unchanged; Ollama 0.34.4 unchanged; nothing pushed. Next: user hardware decision, then
-             evals/bench/repin.mjs --stage 1 (REPIN.md step 1)"
+checkpoint: "EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (2026-10-05). CPU-only target is intentional; no GPU requirement,
+             no pending hardware work. A3 pinned; Ollama 0.34.4; C VALID / DECISION RULE NOT MET is the final CPU evaluation unless
+             the user authorizes a different study. D not run, gate not chosen. Nothing pushed"
 evidence_classes:
   authoritative: ["clean A2 validation 2026-10-02 (validation_a2_clean)", "b6 = the authoritative Phase B run", "final regression 2026-10-03",
                   "gates.sh 15/15 + T01 x4 2026-10-03 (pre_C_preparation)", "reference agent 18/18 (2026-10-03)"]
   historical: ["cycles 6-8 (pre-A2 jcode)", "b5 (battery + sleep; not used for authoritative timing)",
                "the two CONTAMINATED A2 attempts", "superseded pins (1fbb2e1b4, pre-3f9df6c fingerprints)"]
-  candidate_fixes: ["A3 710560f91 (42ed4012...): ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE, not pinned"]
-  hardware_dependent: ["REPIN.md steps 1-12 incl. quant trial", "C_rebaseline", "D_gate", "infrastructure_phase"]
+  candidate_fixes: ["none (A3 710560f91 / 42ed4012... was a candidate until PINNED 2026-10-04 by REPIN.md on the CPU target)"]
+  final: ["C_rebaseline 2026-10-04/05: VALID, DECISION RULE NOT MET (hermes-bench-archive/cycle10-C)"]
+  hardware_dependent: ["none - the CPU-only machine is the intentional target"]
   proposed_not_approved: ["D_gate.proposal"]
 human_decisions:      # open; Hermes does not decide these (status.mjs --check requires this list)
-  - "C outcome: the pre-registered rule is NOT MET (criterion 4, 8.3% vs 0.0%, caused by control-only non-passes). Accept C as
-     failed-as-registered, or decide what follows (e.g. a new pre-registered C run, or an amended rule for FUTURE runs). Hermes
-     does not reinterpret the registered rule"
-  - "D: adopt, change or reject the D_gate.proposal; its condition 1 (C passes) is currently not met"
+  - "D gate: adopt Gate A, Gate B, or neither (D_gate.proposal; both PROPOSED - REQUIRES HUMAN APPROVAL). D not run"
   - "push: whether/where to push cierra-wip-2026-09-29 and the jcode-evalpin branches"
-  - "pin the observed Ollama server settings (KV q8_0, flash attention, ...) or keep them observed-only"
-  - "housekeeping: old sandboxes under %TEMP%/agent-evals (131 dirs, ~36 GiB; re-analysis reads them) and the Ollama 0.35.1 staged
-     installer (evals/AUDIT.md 21.5: keep both for now)"
-  - "suite policy: should a TRIP that needs review (VIOLATION/UNATTRIBUTED) fail the suite with its own exit code, instead of the marker"
+  - "optional housekeeping: %TEMP%/agent-evals sandbox roots and the staged Ollama 0.35.1 installer (HANDOFF 'Optional cleanup')"
 known_limitations:
   cpu_throughput: ["T08 + T13: TIMEOUT post-A2 (CPU/model throughput; progressing, not stalled)",
                    "T03/T14/T17 (cycle 8, pre-A2, historical; as recorded): contained PASS(to) x3 = TIMEOUT (T03: the record's elapsed-time

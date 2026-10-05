@@ -1,6 +1,6 @@
 # Handoff: pick up here
 
-Updated 2026-10-05 (C COMPLETE on the CPU target, decision rule NOT MET on criterion 4; A3 pinned; D not run). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
+Updated 2026-10-05 (EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE; C VALID and final; A3 pinned; D not run, gate not chosen). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
 `evals/REPIN.md`; exact post-hardware sequence: `evals/RUNBOOK-POST-HARDWARE.md`. Evidence: `C:\Users\cierra\hermes-bench-archive` (cycle9 = A2, Phase B, A3 candidate, final
 regression, pre-C tooling checks).
 
@@ -419,26 +419,39 @@ C is VALID and FAILED its rule; the result is not changed. Both disagreements ar
 T05 C3-control fixed the bug by +159 s, then looped (3 summary files, repeated tests) until the 1200 s kill (throughput was normal);
 T17 C1-control wrote the CSV in one shot with three rows in the wrong date order and never verified it (other 5 runs: identical correct file).
 Criterion 4 with 3 reps fails ~35-43% of the time with no containment effect (simulation), so re-running the same rule is not
-justified; any new run is a separately pre-registered C-prime that cannot replace C. D stays blocked.
+justified. No C-prime is planned (`evals/POST-C-NOTE.md`).
+
+## Final status (2026-10-05)
+**EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE.** It is not "setup incomplete": the CPU-only machine is the intentional
+target, there is no GPU requirement and no pending hardware work. C (6 runs, 48 task runs) is **COMPLETE / VALID / DECISION
+RULE NOT MET** and is final evidence. The failure was not caused by a containment violation, and containment lowered no score.
+Criterion 4 is unusually sensitive to isolated model variance: it falsely fails ~35-43% of the time with no containment
+effect (`evals/POST-C-NOTE.md`). **No C-prime is planned**; any other study needs your explicit authorization and its own
+pre-registration.
+- D: not run; gate not chosen. Gate A (needs the existing C rule to pass, so it is blocked by C) and Gate B (needs a
+  separately approved containment-regression criterion) are both PROPOSED - REQUIRES HUMAN APPROVAL (PLAN `D_gate.proposal`).
+- TRIP: `tripclass.mjs` attributes the C1-control-style sampling race (control mode only; same pid becomes the eval jcode
+  within 15 s) as `control-expected-late-name`; contained mode is unchanged. Archived trip files are not rewritten.
+- Ollama server settings: OBSERVED ONLY (no project requirement pins them).
+
+## Optional cleanup (nothing deleted)
+| Item | Class | Note |
+|---|---|---|
+| `%TEMP%\agent-evals`: 118 roots with a `evals/results/<same name>` dir (incl. the 6 C runs) | useful evidence | workspaces behind recorded results (C's T17 CSVs were read from them); keep |
+| 1 root named only in the archive | useful evidence | keep |
+| 25 roots referenced nowhere (2026-09-30, 10-02 x2, 21 from 2026-10-04 17:17-20:45 UTC = pre-C tooling/lifecycle tests, `manual-pre-baseline-contaminated`) | ambiguous / probably safe | not proven temporary from names alone; review the list, then delete if you want the space |
+| staged Ollama 0.35.1 installer (`%LOCALAPPDATA%\Ollama\updates_v2\d5a1390e...\OllamaSetup.exe`, 1.58 GB) | safe to delete, not rollback | it is the upgrade, not a 0.34.4 rollback; auto-update is OFF; left alone (Ollama's own folder) |
+Total roots now 144 (131 when last counted, plus the C runs and later tests).
 
 ## Open decisions (yours)
-1. **C outcome**: (a) accept "C FAILED, model variability documented" as final, or (b) pre-register a separate C-prime
-   (options in the post-analysis memo). C itself is not re-run or amended.
-2. **D**: blocked; it proceeds only if you change its definition (or define C-prime passing as its gate). D not run.
-3. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
+1. **D gate**: adopt Gate A, Gate B, or neither (PLAN `D_gate.proposal`). D not run.
+2. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
-4. **D gate definition** (adopt / change / reject the PROPOSAL in Coverage): needed before D, not before C. If adopted,
-   the implementation burden is small (existing suite.sh/reduced.sh with all 18 tasks); what it would still need is a D
-   decision rule and timeouts for the 10 non-C tasks (PLAN `D_gate.preparation_if_adopted`).
-5. **Ollama server settings**: keep them observed-only, or pin them (KV q8_0, flash attention, ...) as part of the re-pin.
-6. **TRIP review policy** (was 7): a TRIP needing review writes `ev-<label>/TRIP-NEEDS-REVIEW` and the last line says so, but the exit code is still 0 - decide whether it should fail the suite.
-7. **Housekeeping** (optional; `evals/AUDIT.md` 21.5): 131 sandbox roots under `%TEMP%\agent-evals` (~36 GiB; re-analysis
-   reads them; 13 are from the 2026-10-04 real-process tests), the staged Ollama 0.35.1 installer. Recommendation: keep
-   both until C is archived. Nothing has been deleted.
+3. **Optional housekeeping**: the table above.
 
-Manual action, not a decision: disable Ollama automatic updates before the next Ollama restart ("Ollama auto-update").
-Already decided: the evaluation target is this CPU-only machine; A3 is pinned (2026-10-04); quant Q4_K_M (no alternative
-is feasible here); compression on the main provider.
+Already decided: the evaluation target is this CPU-only machine; A3 is pinned (2026-10-04); quant Q4_K_M; Ollama
+auto-update is OFF; C is final; no C-prime; Ollama server settings observed-only; the trip-classifier late-name rule was adopted as a
+diagnostic (control mode only).
 
 ## Post-checkpoint hardening (2026-10-04)
 Autonomous non-hardware backlog; details and the full audit in `evals/AUDIT.md`. Defects fixed (none touched a pin, a

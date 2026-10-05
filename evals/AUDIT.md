@@ -334,3 +334,14 @@ contained 0.0%), computed by the definition registered before the run (`cycle10-
 | run order T01..T17 (suite order), not the preregistration's written order | doc correction; same in all 6 runs | run-*.log |
 Proposal (not done; changing classification tooling after the run would touch evidence handling): tripclass could attribute
 a `name=?` line whose pid resolves to an expected process in the next sample.
+
+### 24 Post-C closeout (2026-10-05; no run, no evidence rewritten)
+- C final: COMPLETE / VALID / DECISION RULE NOT MET. Design lesson: `evals/POST-C-NOTE.md`. No C-prime planned.
+- Trip classifier (AUDIT 23 proposal) adopted as a diagnostic. `control-expected-late-name` applies only in control mode, only to
+  `meter-connection-from-non-broker` with `name=?` and an empty cmd, and only when the same pid is `control-expected` in a later
+  sample within 15 s. Contained-mode classification is unchanged, so no VIOLATION can be attributed away. Tests cover: attributed
+  case, contained stays VIOLATION, and stays UNATTRIBUTED for no follow-up, other pid, >15 s, earlier-only, non-eval process,
+  Ollama-client kind, and non-empty cmd. A read-only re-run over the 6 C evidence dirs (no `--out`) changes only
+  ev-C1-control (1 UNATTRIBUTED -> late-name), which matches TRIP-REVIEW.md. All archived files have the same md5 before and after.
+- Ollama server settings: kept OBSERVED ONLY (no requirement pins them).
+- Housekeeping: classified in HANDOFF "Optional cleanup"; nothing deleted.
