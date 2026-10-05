@@ -314,3 +314,23 @@ Re-pin on this machine (steps 1-12, archive `cycle10-cpu-repin`): all PASS - 100
 commit `8295bb7`, `gates.sh` PASS, T01 x4 reproducible `90862fc1...` and DIFFERENT from the A2 `df1332d7...`,
 quant Q4_K_M. No quant trial was run (not feasible here - a feasibility fact, not a measurement; PLAN
 `quant_decision.numbers`); A0-A2 values stay as they were.
+
+### 23 C executed as pre-registered (2026-10-04 18:26 -> 2026-10-05 09:50; no code changed during the run)
+Gate before: cpreflight `--warm` READY FOR C at `3d710ab` (clean). Run: 6 suites (C1..C3 x contained/control), all
+reduced.sh exit 0; no meter death, no sleep (power.txt each run), AC throughout, Ollama never restarted, repo and
+`~/.jcode` fingerprints UNCHANGED after every run, `--ref` config mismatches 0. Outcomes 48: PASS 28, FAIL 5, TIMEOUT 15
+(6 with grader PASS, classified TIMEOUT per outcome.ts), SETUP_FAILED/BLOCKED/CONTAMINATED/INCONCLUSIVE/NOT RUN 0.
+Decision rule (PLAN `C_rebaseline.preregistration`): 4 HOLD, criterion 4 FAILS (contained-vs-control 8.3% > contained-vs-
+contained 0.0%), computed by the definition registered before the run (`cycle10-C/c-analysis-raw.txt`). Not reinterpreted.
+| Finding | Class | Evidence |
+|---|---|---|
+| T13 x4, T08 x1, T05 x1 correct but past the limit | CPU throughput | grader PASS at TIMEOUT, run-*.log |
+| T14 0/6 (rootDir/TS2307 never fixed; POSIX `ls`/`rm` in cmd.exe) | model | classify-*.txt, results T14 detail |
+| T08 grader FAILs (hidden registered/file/dir/escape), no test run (bash=0) | model | classify-*.txt |
+| T13 C3 x2 finished in time, hidden runTask tests fail | model | run-C3-*.log |
+| T17 C1-control CSV mismatch | model (variance) | run-C1-control.log |
+| C1-control 1 UNATTRIBUTED TRIP: pid 36180 `name=?`, same pid = pinned jcode.exe (T04, control) 10 s later | harness observability; not a violation | ev-C1-control/TRIP-REVIEW.md |
+| contained-only "Access is denied" (`dir /s`, `cd /d` absolute) in T03 (PASS) and T14 (fails in control too) | containment working as designed; no contained-only failure | classify-C2/C3-contain |
+| run order T01..T17 (suite order), not the preregistration's written order | doc correction; same in all 6 runs | run-*.log |
+Proposal (not done; changing classification tooling after the run would touch evidence handling): tripclass could attribute
+a `name=?` line whose pid resolves to an expected process in the next sample.

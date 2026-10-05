@@ -69,7 +69,8 @@ export function checks(s, docs) {
   c('superseded-a2-still-recorded', plan.includes(A2_SHA.slice(0, 16)) && plan.includes(A2_SHA), 'PLAN.yaml pins.jcode must still record the superseded A2 sha256 (history, not erased)');
   c('a3-authoritative', /AUTHORITATIVE/.test(a3Status) && !/NOT YET AUTHORITATIVE/.test(a3Status), 'PLAN A3 status must read AUTHORITATIVE (re-pin done) and no longer NOT YET AUTHORITATIVE');
   c('a3-wording-handoff', /A3: PINNED/.test(handoff) && !/ADOPTED AS CANDIDATE, NOT YET AUTHORITATIVE/.test(handoff), 'HANDOFF must state A3 as PINNED and drop the candidate wording');
-  c('c-not-started', s.phases.C_rebaseline === 'NOT STARTED', `PLAN C_rebaseline status is "${s.phases.C_rebaseline}"`);
+  // C ran 2026-10-04/05 (as pre-registered); its record must say COMPLETE and keep the decision-rule verdict visible.
+  c('c-complete-recorded', s.phases.C_rebaseline === 'COMPLETE' && /DECISION RULE (NOT )?MET/.test(s.phase_detail.C_rebaseline ?? ''), `PLAN C_rebaseline status is "${s.phases.C_rebaseline}" (expected COMPLETE with a DECISION RULE verdict)`);
   const dText = (JSON.stringify(s.d_gate_proposal ?? '') + ' ' + (s.phase_detail.D_gate ?? '')).replace(/NOT (YET )?(ADOPTED|APPROVED)/g, '');
   c('d-proposed-not-adopted', /PROPOSED/.test(dText) && !/ADOPTED|APPROVED/.test(dText), 'PLAN D_gate must carry the proposal labelled PROPOSED and must not read ADOPTED/APPROVED');
   c('ollama-pin-0.34.4', s.pins.ollama_version === '0.34.4', `pinned Ollama is ${s.pins.ollama_version}`);

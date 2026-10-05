@@ -1,7 +1,6 @@
 # Handoff: pick up here
 
-Updated 2026-10-04 (CPU TARGET REINSTATED: the existing machine IS the evaluation environment; A3 re-pinned on it;
-C not started). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
+Updated 2026-10-05 (C COMPLETE on the CPU target, decision rule NOT MET on criterion 4; A3 pinned; D not run). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
 `evals/REPIN.md`; exact post-hardware sequence: `evals/RUNBOOK-POST-HARDWARE.md`. Evidence: `C:\Users\cierra\hermes-bench-archive` (cycle9 = A2, Phase B, A3 candidate, final
 regression, pre-C tooling checks).
 
@@ -10,8 +9,8 @@ Containment is proven (all invariants hold; decision rule passed). Last harness-
 hardening and second audit: classification, failure propagation, monitoring, re-pin automation; see "Post-checkpoint
 hardening" and "Second pre-hardware audit"). No
 evidence was produced by the new code: every authoritative result predates it and is unchanged. All work is local (branch `cierra-wip-2026-09-29`); nothing has been pushed.
-**C has not started. The target environment is decided: this machine (see "CPU target" below), so C is no longer
-blocked on hardware - only on the human steps in "Open decisions".**
+**C is COMPLETE (2026-10-04 18:26 -> 2026-10-05 09:50, as pre-registered) and its decision rule is NOT MET: criterion 4
+(contained-vs-control 8.3% <= contained-vs-contained 0.0%) fails; the other four hold. See "C result" below. D not run.**
 
 ### Evidence classes (how to read every result in this file)
 | Class | What belongs here |
@@ -392,10 +391,33 @@ matches the CPU baseline, AC, Ollama 0.34.4, model unchanged and 100% CPU, A3 bi
 a3offline 18/18, `~/.jcode` unchanged, pin commit `8295bb7`, `gates.sh` PASS, T01 x4 reproducible (`90862fc1...`, DIFFERENT
 from the A2 value as required), quant Q4_K_M. A3 is therefore the pin; nothing was pushed.
 
+## C result (2026-10-05; PLAN `C_rebaseline.result`; evidence `hermes-bench-archive/cycle10-C`)
+Pins: A3 `42ed4012...`, Ollama 0.34.4 (auto-update OFF), `hermes-local-32k` `1ef2c71e...` Q4_K_M 32k CPU. HEAD `3d710ab`,
+cpreflight READY FOR C just before. 6 runs x 8 tasks, alternating contained/control, no stop, no setup failure.
+
+| Task | C1-cont | C1-ctrl | C2-cont | C2-ctrl | C3-cont | C3-ctrl | PASS |
+|---|---|---|---|---|---|---|---|
+| T01 | PASS | PASS | PASS | PASS | PASS | PASS | 6/6 |
+| T03 | PASS | PASS | PASS | PASS | PASS | PASS | 6/6 |
+| T04 | PASS | PASS | PASS | PASS | PASS | PASS | 6/6 |
+| T05 | PASS | PASS | PASS | PASS | PASS | TIMEOUT (grader PASS) | 5/6 |
+| T08 | TIMEOUT (grader PASS) | TIMEOUT | TIMEOUT | TIMEOUT | FAIL | TIMEOUT | 0/6 |
+| T13 | TIMEOUT (grader PASS) | TIMEOUT (grader PASS) | TIMEOUT (grader PASS) | TIMEOUT (grader PASS) | FAIL | FAIL | 0/6 |
+| T14 | TIMEOUT | TIMEOUT | TIMEOUT | TIMEOUT | TIMEOUT | TIMEOUT | 0/6 |
+| T17 | PASS | FAIL | PASS | PASS | PASS | PASS | 5/6 |
+| score | 5/8 | 4/8 | 5/8 | 5/8 | 5/8 | 4/8 | 28/48 |
+
+Decision rule: invariants HOLD; fingerprints HOLD (0 mismatches; one fingerprint per task across all 48 runs); no
+contained-only failure HOLDS; same-mode 4/48 = 8.3% <= 25% HOLDS; contained-vs-control 6/72 = 8.3% <= contained-vs-contained
+0/24 = 0.0% FAILS. The 6 disagreements are two CONTROL-only non-passes (T17 C1-control, T05 C3-control) x 3 contained PASSes.
+Containment did not lower the score; the rule as registered is still not met, and it is not reinterpreted here.
+Limits: CPU throughput = 6 grader-PASS timeouts (T13 x4, T08, T05); model = T14 0/6, T08 grader FAILs, T13 in C3, T17 once;
+harness defects affecting a result = none (one control TRIP line reviewed: watcher sampling race, `ev-C1-control/TRIP-REVIEW.md`).
+
 ## Open decisions (yours)
-1. ~~Ollama auto-update~~ DONE 2026-10-04 (user): OFF (`db.sqlite` auto_update_enabled = 0).
-2. ~~C pre-registration~~ APPROVED 2026-10-04 (user): PLAN `C_rebaseline.preregistration` (Q4_K_M; setup failure -> rerun
-   once, then SETUP_FAILED; same-mode disagreement <= 25%; no timeout/grader/difficulty/criteria change).
+1. **C outcome**: accept C as failed-as-registered (criterion 4), or decide what follows (a new pre-registered run, or an
+   amended rule for future runs only). The registered rule is not changed after the fact.
+2. **D**: adopt/change/reject `D_gate.proposal`; its condition "C passes" is not met. D not run.
 3. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
 4. **D gate definition** (adopt / change / reject the PROPOSAL in Coverage): needed before D, not before C. If adopted,

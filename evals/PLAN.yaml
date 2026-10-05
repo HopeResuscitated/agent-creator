@@ -6,7 +6,7 @@ branch: cierra-wip-2026-09-29      # PUSH STATE UNRESOLVED: origin has this bran
                                    # session) although this file said "local only, never pushed". Local is ahead of
                                    # origin by the commits under harness_commits (15 at the 2026-10-03 pre-C docs commit).
                                    # Hermes has not pushed. jcode-evalpin has no upstream configured; also never pushed.
-head: a129fe0                      # last code/docs commit 2026-10-04 (CPU target reframe; A3 pinned at 8295bb7); see harness_commits
+head: 3d710ab                      # C ran at this HEAD; last code/docs commit 2026-10-05 (C result recorded); see harness_commits
 updated: 2026-10-04
 
 pins:                              # the evaluation contract; run.ts refuses (exit 2) on any mismatch
@@ -76,6 +76,8 @@ harness_commits:                   # since 6ca495a (the last commit on origin)
   030aaa8: "evaluation target is declared, not assumed: bench/target.mjs, repin target branch + stage-3 CPU check, cpreflight GPU-only blockers removed (AUDIT 22)"
   d4ef6d1: "PLAN: H_hardware DECIDED (CPU target); quant decision; C preregistration PROPOSED (not approved)"
   8295bb7: "pin: A3 on the CPU target (baseline-env.json only) - written by repin stage 5-6"
+  8046747: "C pre-registration APPROVED (user 2026-10-04) and recorded before the first C run"
+  3d710ab: "test: the committed repo is pre-registered (C ran at this HEAD)"
   9c9bf85: "suite.sh: TRIP needing review -> ev-<label>/TRIP-NEEDS-REVIEW + last line (exit code policy unchanged)"
 jcode_commits:                     # C:/Users/cierra/jcode-evalpin, local only
   1fbb2e1b4: "XML tool-call recovery (previous pin)"
@@ -416,7 +418,52 @@ phases:
               "relay 12/12, contained-e2e 9/9", "meter kill-abort ttfb 176 ms", "zero-task suites contained + control: exit 0, AC, no sleep, TRIP 0",
               "repo fingerprint + git status + ~/.jcode unchanged"]
   C_rebaseline:
-    status: "NOT STARTED - pre-registered 2026-10-04 (user-approved), auto-update OFF; starts when cpreflight prints READY FOR C"
+    status: "COMPLETE (2026-10-05) - executed exactly as pre-registered; DECISION RULE NOT MET: 4 of 5 criteria hold, criterion 4
+             (contained-vs-control <= contained-vs-contained) fails 8.3% vs 0.0% - see result.decision_rule. Not re-run, not reinterpreted"
+    result:
+      run: "2026-10-04 18:26 -> 2026-10-05 09:50 (15 h 24 min), HEAD 3d710ab (clean, preregistration commit 8046747 + test fix),
+            cpreflight --repin cycle10-cpu-repin --warm = READY FOR C immediately before. Driver: reduced.sh x2 (C1-contain, then the
+            other five with --ref C1-contain's effective-config.json). Evidence: hermes-bench-archive/cycle10-C (driver.log,
+            reduced.log, run-*.log, classify-*, analysis-*, ev-*/, c-analysis-raw.txt); evals/results/2026-10-04-23-26 ..
+            2026-10-05-12-16 (_ollama-hermes-local-32k)"
+      runs: {C1-contain: "5/8", C1-control: "4/8", C2-contain: "5/8", C2-control: "5/8", C3-contain: "5/8", C3-control: "4/8"}
+      per_task: # PASS count of 6 runs; outcomes in run order C1-contain C1-control C2-contain C2-control C3-contain C3-control
+        T01: "6/6 PASS PASS PASS PASS PASS PASS"
+        T03: "6/6 PASS PASS PASS PASS PASS PASS"
+        T04: "6/6 PASS PASS PASS PASS PASS PASS"
+        T05: "5/6 PASS PASS PASS PASS PASS TIMEOUT(grader PASS, 1201 s of 1200)"
+        T08: "0/6 TIMEOUT(grader PASS) TIMEOUT(gF) TIMEOUT(gF) TIMEOUT(gF) FAIL(918 s) TIMEOUT(gF)"
+        T13: "0/6 TIMEOUT(gP) TIMEOUT(gP) TIMEOUT(gP) TIMEOUT(gP) FAIL(1894 s) FAIL(1972 s)"
+        T14: "0/6 TIMEOUT(gF) x6"
+        T17: "5/6 PASS FAIL(csv mismatch, 156 s) PASS PASS PASS PASS"
+      classes: "48 task runs: PASS 28, FAIL 5, TIMEOUT 15 (6 of them grader-PASS = TIMEOUT, never PASS); SETUP_FAILED 0 (no rerun
+                needed), BLOCKED 0, CONTAMINATED 0, INCONCLUSIVE 0, NOT RUN 0"
+      decision_rule:
+        - "invariants hold every contained run: HOLDS (TRIP 0 / 0 / 1 = harness-warmup, attributed; repo and ~/.jcode fingerprints
+           UNCHANGED every run; no sleep; AC; meter alive)"
+        - "fingerprints match within mode: HOLDS (reduced.sh --ref mismatches=0 in all 5 compared runs; 8 distinct task fingerprints
+           over 48 task runs = identical across runs AND modes)"
+        - "no contained-only failure with a containment-specific error: HOLDS (no task failed only in contained mode; the
+           contained-only 'Access is denied' lines - dir /s, cd /d to absolute paths in T03/T14 - occur in a PASS (T03) and in a
+           task that fails in every control run too (T14))"
+        - "contained-vs-control disagreement <= contained-vs-contained: FAILS - 6/72 = 8.3% vs 0/24 = 0.0%. All 6 come from two
+           CONTROL-only non-passes (T17 C1-control FAIL, T05 C3-control TIMEOUT) each disagreeing with 3 contained PASSes;
+           control-vs-control 4/24 = 16.7%. Contained was the more consistent mode; the rule as written still fails"
+        - "same-mode disagreement <= 25%: HOLDS - 4/48 = 8.3% (pooled; contained 0/24, control 4/24)"
+      trip_review: "C1-control: 1 UNATTRIBUTED line (pid 36180 name=? at 21:20:51), the same pid resolves 10 s later to the pinned
+                    A3 jcode.exe running T04 in control mode = watcher sampling race. Reviewed: ev-C1-control/TRIP-REVIEW.md; run is
+                    clean evidence. Other control runs all attributed"
+      order_note: "the harness ran tasks in suite order T01 T03 T04 T05 T08 T13 T14 T17 in every run (reduced.sh passes the list,
+                   run.ts orders by id), not the order written in preregistration.order; identical in all 6 runs and both modes"
+      analysis:
+        cpu_throughput: "6 task runs did the work correctly but past the limit (grader PASS at TIMEOUT): T13 x4, T08 x1, T05 x1.
+                         Throughput on this CPU, not correctness; counted TIMEOUT as required"
+        model_limitation: "T14 (0/6: build never fixed - TS2307/TS6059 rootDir errors; also issues POSIX ls/rm into cmd.exe),
+                           T08 (5 of 6 grader FAIL: hidden tests registered/file/dir/escape fail; never ran the tests - bash=0),
+                           T13 in C3 (finished in time, hidden runTask tests fail), T17 C1-control (wrong CSV)"
+        harness_defect: "none affecting a result. Observability: tripclass cannot attribute a first-sample name=? line
+                         (proposal in AUDIT 23; not changed post hoc)"
+
     preflight: "evals/bench/cpreflight.mjs --repin <R> [--warm] -> READY FOR C or BLOCKED: <every reason>; fails closed. The GPU-only
                 prerequisites (GPU visible, VRAM, GPU layers, 100%-GPU placement) were removed 2026-10-04: they existed only for the
                 abandoned dedicated-GPU plan. Real prerequisites kept: jcode integrity, model integrity, Ollama version, containment,
@@ -469,12 +516,13 @@ phases:
     decision_rule: ["invariants hold every contained run", "fingerprints match within mode",
                     "no contained-only failure with a containment-specific error",
                     "contained-vs-control disagreement <= contained-vs-contained", "same-mode disagreement well below 41%"]
-    preconditions_left: ["NONE of the human steps remain (2026-10-04): auto-update OFF (user; db.sqlite auto_update_enabled=0), preregistration approved (above)", "H decided (CPU target: this machine)", "REPIN.md steps 1-12 PASS (A3 pinned then)", "Ollama auto-update off (manual, user) or deliberately re-pinned",
+    preconditions_left: ["none - C executed 2026-10-04/05 (result above). Before C: auto-update OFF (user; db.sqlite auto_update_enabled=0), preregistration approved", "H decided (CPU target: this machine)", "REPIN.md steps 1-12 PASS (A3 pinned then)", "Ollama auto-update off (manual, user) or deliberately re-pinned",
                          "C pre-registered in this file (tasks, reps, order, timeouts, decision rule) before the first C run", "machine on AC and exclusive"]
     preconditions_done: ["A3 adopted as candidate (2026-10-03; becomes authoritative only via REPIN.md)", "repo AGENTS.md corrected (HEAD); C keeps eval-baseline-v1, whose AGENTS.md still has the old text
                          (sandboxes come from the tag, not HEAD) - same text in every run, so no contained-vs-control bias"]
   D_gate:
-    status: "NOT RUN - after C (foundation complete -> infrastructure phase)"
+    status: "NOT RUN - not approved. C is COMPLETE but its pre-registered decision rule is NOT MET (criterion 4), so the
+             proposal's own condition 1 ('C passes its decision rule') is not satisfied; whether D may proceed is a human decision"
     definition: "NOT ADOPTED - nothing beyond 'after C' is a requirement"
     proposal: "PROPOSED, NOT APPROVED (Hermes; user decides before D, not needed for C): 1) C passes its decision rule; 2) one 18-task
                contained + control run on the final pin (T02 T06 T07 T09-T12 T15 T16 T18 otherwise never run on it)"
@@ -514,16 +562,15 @@ evidence_classes:
   hardware_dependent: ["REPIN.md steps 1-12 incl. quant trial", "C_rebaseline", "D_gate", "infrastructure_phase"]
   proposed_not_approved: ["D_gate.proposal"]
 human_decisions:      # open; Hermes does not decide these (status.mjs --check requires this list)
-  - "hardware: GPU / VRAM / machine (H_hardware); measured facts in HANDOFF 'Hardware decision'"
-  - "Ollama: keep 0.34.4 (turn auto-update off in the tray before the next restart) or deliberately re-pin a new version"
-  - "after the re-pin: the quant (REPIN step 12) and C's pre-registration (reps, order, timeouts, decision rule)"
-  - "D: adopt, change or reject the D_gate.proposal (needed before D, not before C)"
+  - "C outcome: the pre-registered rule is NOT MET (criterion 4, 8.3% vs 0.0%, caused by control-only non-passes). Accept C as
+     failed-as-registered, or decide what follows (e.g. a new pre-registered C run, or an amended rule for FUTURE runs). Hermes
+     does not reinterpret the registered rule"
+  - "D: adopt, change or reject the D_gate.proposal; its condition 1 (C passes) is currently not met"
   - "push: whether/where to push cierra-wip-2026-09-29 and the jcode-evalpin branches"
   - "pin the observed Ollama server settings (KV q8_0, flash attention, ...) or keep them observed-only"
   - "housekeeping: old sandboxes under %TEMP%/agent-evals (131 dirs, ~36 GiB; re-analysis reads them) and the Ollama 0.35.1 staged
      installer (evals/AUDIT.md 21.5: keep both for now)"
   - "suite policy: should a TRIP that needs review (VIOLATION/UNATTRIBUTED) fail the suite with its own exit code, instead of the marker"
-  - "C pre-registration: how SETUP_FAILED tasks (excluded from the score) are handled (re-run or count)"
 known_limitations:
   cpu_throughput: ["T08 + T13: TIMEOUT post-A2 (CPU/model throughput; progressing, not stalled)",
                    "T03/T14/T17 (cycle 8, pre-A2, historical; as recorded): contained PASS(to) x3 = TIMEOUT (T03: the record's elapsed-time

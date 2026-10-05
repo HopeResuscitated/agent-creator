@@ -23,7 +23,8 @@ test('the real repository passes every offline check', async () => {
 test('mutations are caught', async () => {
   const base = await collect({ offline: true }); const d = docs();
   const m = (f) => { const s = clone(base); f(s); return failing(s, d); };
-  assert.ok(m((s) => { s.phases.C_rebaseline = 'IN PROGRESS'; }).includes('c-not-started'));
+  assert.ok(m((s) => { s.phases.C_rebaseline = 'IN PROGRESS'; }).includes('c-complete-recorded'));
+  assert.ok(m((s) => { s.phase_detail.C_rebaseline = 'COMPLETE - no verdict'; }).includes('c-complete-recorded'));
   // the pin must be A3: rolling it back to A2 (the superseded pin) fails
   const A2 = 'f76eff118ae42e9876727095c100420f485e7ea7a8904d3dd62e93f55beaf8e3';
   assert.ok(m((s) => { s.pins.jcode_sha256 = A2; }).includes('pin-is-a3'));
