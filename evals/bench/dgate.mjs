@@ -11,6 +11,12 @@
 //          evidence set's own recorded analysis (for C: PLAN C_rebaseline.result.decision_rule criteria 1-3).
 //       Labels must end in -contain or -control; each run-<label>.log names its results dir ("Report: .../summary.md").
 //
+//   "$NODE_BIN" evals/bench/dgate.mjs --preflight
+//       D start guard (reduced.sh calls it for any D<n>-* label and refuses on non-zero). Fails closed. READY only if:
+//       PLAN phases.D_gate.approval = { gate: A|B, approved_by, date } (human-written), phases.D_gate.preregistration has
+//       tasks/reps/order/timeouts/decision_rule/evidence_dir with no TEMPLATE/TBD placeholder, and the approved gate's
+//       condition holds (A: C rule MET; B: B1+B2 on cycle10-C AND approval.criterion_text recorded).
+//       Machine/live checks are not repeated here: reduced.sh's gate, run.ts's pin gate and suite.sh enforce them.
 // Exit 0 = the gate's condition is met on that evidence, 1 = not met (D blocked under that gate), 2 = usage/unreadable.
 // TIMEOUT, FAIL, SETUP_FAILED, ... all count as not-PASS (a grader-PASS TIMEOUT is never PASS).
 import fs from 'node:fs';
@@ -40,6 +46,28 @@ export function gateB(runs) {
   const met = regressions.length === 0 && sameMode <= 0.25;
   return { met, regressions, sameMode, diff, pairs, reason: `B1 regressions=[${regressions.join(',')}] B2 same-mode ${diff}/${pairs} = ${(100 * sameMode).toFixed(1)}%` };
 }
+const PLACEHOLDER = /TEMPLATE|TBD|<[^>]*>/;
+/** D start guard on a parsed PLAN; cEvidenceRuns = loadArchive(cycle10-C) (only used for Gate B). Returns { ready, reasons }. */
+export function dPreflight(plan, cEvidenceRuns) {
+  const d = plan?.phases?.D_gate ?? {}; const reasons = [];
+  const ap = d.approval;
+  if (!ap || typeof ap !== 'object') reasons.push('no human approval recorded (PLAN phases.D_gate.approval missing)');
+  else {
+    if (!['A', 'B'].includes(ap.gate)) reasons.push(`approval.gate must be A or B (got ${JSON.stringify(ap.gate)})`);
+    if (!ap.approved_by || PLACEHOLDER.test(String(ap.approved_by))) reasons.push('approval.approved_by missing');
+    if (!ap.date || PLACEHOLDER.test(String(ap.date))) reasons.push('approval.date missing');
+    if (ap.gate === 'A') { const a = gateA(plan?.phases?.C_rebaseline?.status); if (!a.met) reasons.push(`Gate A not met: ${a.reason}`); }
+    if (ap.gate === 'B') {
+      if (!ap.criterion_text || PLACEHOLDER.test(String(ap.criterion_text))) reasons.push('Gate B approval must record criterion_text');
+      const b = gateB(cEvidenceRuns ?? []); if (!b.met) reasons.push(`Gate B not met: ${b.reason}`);
+    }
+  }
+  const pre = d.preregistration;
+  const need = ['tasks', 'reps', 'order', 'timeouts', 'decision_rule', 'evidence_dir'];
+  if (!pre || typeof pre !== 'object') reasons.push('D not pre-registered (PLAN phases.D_gate.preregistration missing)');
+  else for (const k of need) if (pre[k] === undefined || pre[k] === null || PLACEHOLDER.test(JSON.stringify(pre[k]))) reasons.push(`preregistration.${k} missing or still a template`);
+  return { ready: reasons.length === 0, reasons };
+}
 export function loadArchive(dir) {
   const runs = [];
   for (const f of fs.readdirSync(dir).filter((x) => /^run-.+\.log$/.test(x)).sort()) {
@@ -62,14 +90,21 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       const { default: yaml } = await import('js-yaml');
       const plan = yaml.load(fs.readFileSync(fileURLToPath(new URL('../PLAN.yaml', import.meta.url)), 'utf8'));
       const r = gateA(plan?.phases?.C_rebaseline?.status);
-      console.log(`Gate A: ${r.met ? 'CONDITION MET' : 'BLOCKED'} - ${r.reason}`); process.exit(r.met ? 0 : 1);
+      console.log(`Gate A (D requires the existing pre-registered C rule to PASS): ${r.met ? 'CONDITION MET' : 'BLOCKED'} - ${r.reason}`); process.exit(r.met ? 0 : 1);
     } else if (g === 'B' && flag('archive')) {
       const runs = loadArchive(flag('archive'));
       const r = gateB(runs);
       console.log(`runs: ${runs.map((x) => `${x.label}(${x.mode})`).join(' ')}`);
-      console.log(`Gate B (candidate criterion, not approved): ${r.met ? 'B1+B2 MET' : 'B1/B2 NOT MET'} - ${r.reason}; B3 from the evidence set's recorded analysis`);
+      console.log(`Gate B (separately defined containment-regression criterion): ${r.met ? 'MEETS the proposed criterion (B1+B2)' : 'DOES NOT MEET the proposed criterion'} - ${r.reason}; B3 from the evidence set's recorded analysis`);
+      console.log('Gate B was defined AFTER C: applying it to C is post hoc, does NOT change C (DECISION RULE NOT MET), and requires explicit human approval before D');
       process.exit(r.met ? 0 : 1);
+    } else if (argv.includes('--preflight')) {
+      const { default: yaml } = await import('js-yaml');
+      const plan = yaml.load(fs.readFileSync(fileURLToPath(new URL('../PLAN.yaml', import.meta.url)), 'utf8'));
+      let runs = []; try { runs = loadArchive(flag('c-archive') ?? 'C:/Users/cierra/hermes-bench-archive/cycle10-C'); } catch (e) { runs = []; }
+      const r = dPreflight(plan, runs);
+      console.log(r.ready ? 'READY FOR D' : `D BLOCKED: ${r.reasons.join('; ')}`); process.exit(r.ready ? 0 : 1);
     }
   } catch (e) { console.error(`dgate: ${e.message}`); process.exit(2); }
-  console.error('usage: dgate.mjs --gate A | --gate B --archive <dir>'); process.exit(2);
+  console.error('usage: dgate.mjs --gate A | --gate B --archive <dir> | --preflight [--c-archive <dir>]'); process.exit(2);
 }

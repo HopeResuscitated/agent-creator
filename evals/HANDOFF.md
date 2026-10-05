@@ -430,7 +430,8 @@ RULE NOT MET** and is final evidence. The failure was not caused by a containmen
 Criterion 4 is unusually sensitive to isolated model variance: it falsely fails ~35-43% of the time with no containment
 effect (`evals/POST-C-NOTE.md`). **No C-prime is planned**; any other study needs your explicit authorization and its own
 pre-registration.
-- A3 is the authoritative pin. No hardware work is pending.
+- A3 is the authoritative pin. No hardware work is pending. Current evidence does not establish a containment regression;
+  CPU/model limitations are documented (PLAN `C_rebaseline.result.analysis`).
 - D: not run; unapproved; gate not chosen. Gate A (needs the existing C rule to pass, so it is blocked by C) and Gate B (needs a
   separately approved containment-regression criterion) are both PROPOSED - REQUIRES HUMAN APPROVAL (`evals/D-GATES.md`;
   read-only check `evals/bench/dgate.mjs`).
@@ -443,11 +444,11 @@ pre-registration.
 |---|---|---|
 | 118 `%TEMP%\agent-evals` roots with a same-name `evals/results` dir (incl. the 6 C runs) | evidence | keep |
 | 1 root named only in the archive | evidence | keep |
-| 21 roots `2026-10-04-17-17_baseline` .. `2026-10-04-20-45_ollama-hermes-local-32k` (10-04 12:17-15:46 local, before C; T01/T05 only; ~4.4 GiB) | safe to delete (likely): pre-C tooling/lifecycle tests, no results dir, not named in any archive/doc | `cd "$LOCALAPPDATA/Temp/agent-evals" && rm -rf 2026-10-04-17-* 2026-10-04-18-* 2026-10-04-19-* 2026-10-04-20-*` (check `ls -d 2026-10-04-1[7-9]-* 2026-10-04-20-*` lists exactly 21 first; C's roots start at 2026-10-04-23-26) |
+| 21 roots `2026-10-04-17-17_baseline` .. `2026-10-04-20-45_ollama-hermes-local-32k` (pre-C tests, 10-04 12:17-15:46 local) | **DELETED 2026-10-05** (~4.4 GiB) after checks: pattern matched exactly these 21; none in PLAN/HANDOFF/AUDIT/archive; no results dir or result files; no C overlap. Their 1-2-task, 0-pass rows remain in the runner-owned `evals/results/history.csv` (untouched) | done |
 | `2026-09-30-03-16_openai-compatible-g3f-scripted`, `2026-10-02-04-34_...`, `2026-10-02-20-52_...` (~0.5 GiB) | ambiguous: dev/scripted runs, no results dir | delete by name if you don't need them |
 | `manual-pre-baseline-contaminated` (T13, 2026-09-29, ~0.1 GiB) | ambiguous: the name marks a kept contaminated sample | keep unless you know it is disposable |
 | staged Ollama 0.35.1 installer `%LOCALAPPDATA%\Ollama\updates_v2\d5a1390e...\OllamaSetup.exe` (1.58 GB) | safe to delete; NOT rollback (it is the upgrade; 0.34.4 is installed; auto-update OFF) | `rm -rf "$LOCALAPPDATA/Ollama/updates_v2/d5a1390e1510962fac384c97d09b6e4febbffa2797435085c39a80b809b3be06"` with Ollama's tray app quit |
-Total roots: 144.
+Total roots: 123 after the deletion (118 with results, 1 archive-referenced, 4 ambiguous kept). The 0.35.1 installer was left alone.
 
 ## Push readiness (nothing pushed; remotes unchanged)
 | Repo / ref | Local | Remote | Relationship |
@@ -462,7 +463,7 @@ Total roots: 144.
 1. **D gate**: adopt Gate A, Gate B, or neither (`evals/D-GATES.md`). D not run.
 2. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
-3. **Optional housekeeping**: the table above.
+3. **Optional housekeeping**: the 4 ambiguous roots and the 0.35.1 installer (table above).
 
 Already decided: the evaluation target is this CPU-only machine; A3 is pinned (2026-10-04); quant Q4_K_M; Ollama
 auto-update is OFF; C is final; no C-prime; Ollama server settings observed-only; the trip-classifier late-name rule was adopted as a

@@ -1,6 +1,6 @@
 # Harness audit (2026-10-04, post hardware-ready checkpoint; second pass in section 21)
 
-Final project status (2026-10-05): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (sections 23-25).
+Final project status (2026-10-05, frozen): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (sections 23-26).
 
 Scope: everything in `evals/` that can affect evidence, done without hardware, without a re-pin and without changing any
 acceptance criterion. Every defect below was fixed in its own commit with a test; nothing in the evidence archive or in
@@ -357,3 +357,21 @@ a `name=?` line whose pid resolves to an expected process in the next sample.
 - New `bench/dgate.mjs` (read-only, tests) + `D-GATES.md`: Gate A / Gate B, both PROPOSED - REQUIRES HUMAN APPROVAL. Gate A is
   BLOCKED on current evidence. Gate B's candidate criterion is met on C's data, but it was written after C, so applying it is post hoc.
 - Housekeeping: classified with exact commands in HANDOFF "Optional cleanup"; nothing deleted.
+
+### 26 Repository freeze (2026-10-05; no run, no evidence rewritten)
+- C is final: COMPLETE / VALID / DECISION RULE NOT MET. The current evidence does not establish a containment regression;
+  CPU and model limitations are documented. No C-prime is planned. D has not run; its gate requires human approval.
+- D decision package: `D-GATES.md`.
+  - Gate A is BLOCKED.
+  - On C's data, Gate B MEETS the proposed criterion, but it is post hoc, does not change C, and needs approval.
+  - PLAN `D_gate.preregistration_template` is in place.
+- D start guard: `reduced.sh` refuses D labels (exit 2, before creating anything) unless `dgate.mjs --preflight` prints
+  READY FOR D. That requires a human approval record, a filled pre-registration and the gate condition. The tests cover the
+  committed BLOCKED state, Gate A being blocked by C, Gate B approval fields and the guard on three label forms.
+- Housekeeping: deleted the 21 pre-C test roots (2026-10-04 17:17-20:45 UTC, about 4.4 GiB).
+  - Checks before deleting: the pattern matched exactly 21; none appear in PLAN, HANDOFF, AUDIT or the archive; none
+    contain results or result files; none overlap with C.
+  - Finding: `evals/results/history.csv`, the runner's append log, has 1-2-task, 0-pass rows for 20 of them. It was left
+    untouched.
+  - After deleting: 123 roots remain, all listed before deletion: 118 with results, including the 6 C runs; 1
+    archive-referenced; 4 ambiguous, including `manual-pre-baseline-contaminated`. The 0.35.1 installer is untouched.
