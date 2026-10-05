@@ -122,7 +122,7 @@ export function verdict(res) {
   return { ready: res.length > 0 && bad.length === 0, line: bad.length || !res.length ? `BLOCKED: ${bad.map((r) => r.why).join('; ') || 'no checks ran'}` : 'READY FOR C' };
 }
 
-function testChecks(skip) {
+export function testChecks(skip) {
   if (skip) return [{ name: 'tests', ok: false, why: '--skip-tests given: never READY without the offline suite' }];
   const t = spawnSync(process.execPath, ['--test', 'evals/test/*.test.mjs'], { cwd: REPO, encoding: 'utf8' });
   const l = spawnSync('bash', ['evals/test/lint.sh'], { cwd: REPO, encoding: 'utf8' });

@@ -1,6 +1,6 @@
 # Harness audit (2026-10-04, post hardware-ready checkpoint; second pass in section 21)
 
-Final project status (2026-10-05, frozen): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (sections 23-26).
+Final project status (2026-10-05, frozen): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (sections 23-27).
 
 Scope: everything in `evals/` that can affect evidence, done without hardware, without a re-pin and without changing any
 acceptance criterion. Every defect below was fixed in its own commit with a test; nothing in the evidence archive or in
@@ -375,3 +375,16 @@ a `name=?` line whose pid resolves to an expected process in the next sample.
     untouched.
   - After deleting: 123 roots remain, all listed before deletion: 118 with results, including the 6 C runs; 1
     archive-referenced; 4 ambiguous, including `manual-pre-baseline-contaminated`. The 0.35.1 installer is untouched.
+
+### 27 Gate B approval and D pre-registration (2026-10-05; D NOT started)
+- The human approved Gate B. It is recorded verbatim in PLAN `D_gate.approval`, with `D_GATE: B`. Basis: C's evidence
+  meets the criterion. Qualification: the rule is post hoc and does NOT change C. C stays COMPLETE / VALID / DECISION RULE NOT MET.
+  Nothing in C's record, pre-registration or evidence was edited.
+- D is pre-registered (PLAN `D_gate.preregistration`) from the template and existing policy, with no new criterion:
+  - gate B criterion; A3 pin; model digest; Ollama 0.34.4; Q4_K_M; CPU-only;
+  - 1 rep per mode, 18 tasks, D1-contain as the reference;
+  - tasks.json timeouts; C's setup-failure and contamination policy; fingerprints; start/stop; evidence `cycle11-D`.
+- Fact recorded with the shape: at 1 rep per mode, B2 has 0 same-mode comparisons.
+- D preflight: `dgate.mjs --preflight --live` reuses cpreflight's static/live/test checks, minus the C-only plan-c-* checks.
+- The `reduced.sh` guard test now uses an unapproved PLAN via `DGATE_PLAN`. Running the suite therefore cannot start D
+  now that the committed PLAN is approved.

@@ -11,7 +11,7 @@
 //          evidence set's own recorded analysis (for C: PLAN C_rebaseline.result.decision_rule criteria 1-3).
 //       Labels must end in -contain or -control; each run-<label>.log names its results dir ("Report: .../summary.md").
 //
-//   "$NODE_BIN" evals/bench/dgate.mjs --preflight
+//   "$NODE_BIN" evals/bench/dgate.mjs --preflight [--live --warm]   (--live adds cpreflight's machine/live/test checks minus plan-c-*)
 //       D start guard (reduced.sh calls it for any D<n>-* label and refuses on non-zero). Fails closed. READY only if:
 //       PLAN phases.D_gate.approval = { gate: A|B, approved_by, date } (human-written), phases.D_gate.preregistration has
 //       tasks/reps/order/timeouts/decision_rule/evidence_dir with no TEMPLATE/TBD placeholder, and the approved gate's
@@ -22,6 +22,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// DGATE_PLAN: alternate PLAN path (tests only; lets the guard test use an unapproved PLAN regardless of the committed one)
+const PLAN_PATH = process.env.DGATE_PLAN || fileURLToPath(new URL('../PLAN.yaml', import.meta.url));
 
 export function gateA(cStatus) {
   const s = String(cStatus ?? '');
@@ -100,11 +102,32 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       process.exit(r.met ? 0 : 1);
     } else if (argv.includes('--preflight')) {
       const { default: yaml } = await import('js-yaml');
-      const plan = yaml.load(fs.readFileSync(fileURLToPath(new URL('../PLAN.yaml', import.meta.url)), 'utf8'));
+      const plan = yaml.load(fs.readFileSync(PLAN_PATH, 'utf8'));
       let runs = []; try { runs = loadArchive(flag('c-archive') ?? 'C:/Users/cierra/hermes-bench-archive/cycle10-C'); } catch (e) { runs = []; }
       const r = dPreflight(plan, runs);
-      console.log(r.ready ? 'READY FOR D' : `D BLOCKED: ${r.reasons.join('; ')}`); process.exit(r.ready ? 0 : 1);
+      for (const x of r.reasons) console.log(`BLOCKED d-gate: ${x}`);
+      if (r.ready) console.log('ok      d-gate-approval-and-preregistration');
+      let ready = r.ready;
+      if (argv.includes('--live')) {
+        // Machine/live checks reused from cpreflight (same pins, same machine). The C-specific plan-c-* checks
+        // (C not started / C pre-registered) do not apply to D and are skipped; everything else must pass.
+        const cp = await import('./cpreflight.mjs');
+        const { execFileSync } = await import('node:child_process');
+        const REPO = fileURLToPath(new URL('../..', import.meta.url));
+        const env = JSON.parse(fs.readFileSync(fileURLToPath(new URL('../baseline-env.json', import.meta.url)), 'utf8'));
+        const repin = flag('repin') ?? 'C:/Users/cierra/hermes-bench-archive/cycle10-cpu-repin';
+        let record = null; try { record = JSON.parse(fs.readFileSync(path.join(repin, 'repin-record.json'), 'utf8')); } catch { record = null; }
+        const g = (...a) => { try { return execFileSync('git', ['-C', REPO, ...a], { encoding: 'utf8' }).trim(); } catch { return null; } };
+        const { targetOf } = await import('./target.mjs');
+        const res = [...cp.staticChecks({ plan, env, record, gitClean: g('status', '--porcelain') === '', branch: g('rev-parse', '--abbrev-ref', 'HEAD') })
+          .filter((x) => !/^plan-c-/.test(x.name)),
+          ...(await cp.liveChecks({ env, record, warm: argv.includes('--warm'), target: targetOf(plan) })), ...cp.testChecks(argv.includes('--skip-tests'))];
+        for (const x of res) console.log(x.ok ? `ok      ${x.name}` : `BLOCKED ${x.name}: ${x.why}`);
+        ready = ready && cp.verdict(res).ready;
+      }
+      console.log(ready ? `READY FOR D${argv.includes('--live') ? ' (approval + pre-registration + live machine checks)' : ' (approval + pre-registration; run --live --warm for the machine checks)'}`
+        : 'D BLOCKED'); process.exit(ready ? 0 : 1);
     }
   } catch (e) { console.error(`dgate: ${e.message}`); process.exit(2); }
-  console.error('usage: dgate.mjs --gate A | --gate B --archive <dir> | --preflight [--c-archive <dir>]'); process.exit(2);
+  console.error('usage: dgate.mjs --gate A | --gate B --archive <dir> | --preflight [--live [--warm]] [--c-archive <dir>] [--repin <dir>]'); process.exit(2);
 }

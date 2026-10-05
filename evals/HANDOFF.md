@@ -1,6 +1,6 @@
 # Handoff: pick up here
 
-Updated 2026-10-05 (EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE; C VALID and final; A3 pinned; D not run, gate not chosen). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
+Updated 2026-10-05 (EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE; C VALID and final; A3 pinned; D Gate B APPROVED 2026-10-05, D pre-registered, NOT STARTED). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
 `evals/REPIN.md`; exact post-hardware sequence: `evals/RUNBOOK-POST-HARDWARE.md`. Evidence: `C:\Users\cierra\hermes-bench-archive` (cycle9 = A2, Phase B, A3 candidate, final
 regression, pre-C tooling checks).
 
@@ -21,7 +21,7 @@ evidence was produced by the new code: every authoritative result predates it an
 | **Historical** | Kept on record, not reinterpreted, not used for authoritative timing: cycles 6-8 (pre-A2 jcode), b5 (battery + sleep), the two CONTAMINATED A2 attempts, superseded pins |
 | **A3 (now the pin)** | A3 (`710560f91`, `42ed4012...`): PINNED 2026-10-04 by REPIN.md steps 1-12 on the CPU target (commit `8295bb7`, record `cycle10-cpu-repin/repin-record.json`); A0-A2/Phase B evidence stays A2 evidence |
 | **CPU-limited (recorded; not a defect)** | T03/T08/T13/T14/T17 and T05's margin time out on this CPU by throughput, not by fault; the quant trial is not feasible here (documented). Not a missing hardware setup: CPU-only execution is the intended target |
-| **Proposed, not approved** | D gate definition (see Coverage); no other proposal is in force |
+| **Approved 2026-10-05** | D Gate B (PLAN `D_gate.approval`); the "Coverage" D-gate text below is the earlier proposal, kept as history |
 | **Known limitations** | CPU/model-throughput and model-behaviour items below; recorded as measured (TIMEOUT stays TIMEOUT) |
 
 ### Completed
@@ -432,8 +432,8 @@ effect (`evals/POST-C-NOTE.md`). **No C-prime is planned**; any other study need
 pre-registration.
 - A3 is the authoritative pin. No hardware work is pending. Current evidence does not establish a containment regression;
   CPU/model limitations are documented (PLAN `C_rebaseline.result.analysis`).
-- D: not run; unapproved; gate not chosen. Gate A (needs the existing C rule to pass, so it is blocked by C) and Gate B (needs a
-  separately approved containment-regression criterion) are both PROPOSED - REQUIRES HUMAN APPROVAL (`evals/D-GATES.md`;
+- D: Gate B APPROVED by the human 2026-10-05 (PLAN `D_gate.approval`; post-hoc rule, does NOT change C, which stays
+  COMPLETE / VALID / DECISION RULE NOT MET). D pre-registered (PLAN `D_gate.preregistration`); NOT STARTED. Gate A not selected (`evals/D-GATES.md`;
   read-only check `evals/bench/dgate.mjs`).
 - TRIP: `tripclass.mjs` attributes the C1-control-style sampling race (control mode only; same pid becomes the eval jcode
   within 15 s) as `control-expected-late-name`; contained mode is unchanged. Archived trip files are not rewritten.
@@ -460,7 +460,7 @@ Total roots: 123 after the deletion (118 with results, 1 archive-referenced, 4 a
 | jcode-evalpin `eval-pin-a3-candidate` (A3, the pin) | `710560f91` | no upstream | descends from A2 (+1 commit; 3 over master). Pushing needs a remote YOU own (e.g. a fork); do not push to the third-party origin by default |
 
 ## Open decisions (yours)
-1. **D gate**: adopt Gate A, Gate B, or neither (`evals/D-GATES.md`). D not run.
+1. **D launch**: Gate B is approved and D is pre-registered; launching D (up to ~16 h) is your deliberate execution decision (`evals/D-GATES.md`, "Launch").
 2. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
 3. **Optional housekeeping**: the 4 ambiguous roots and the 0.35.1 installer (table above).

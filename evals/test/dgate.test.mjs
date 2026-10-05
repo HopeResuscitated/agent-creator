@@ -52,11 +52,13 @@ test('D preflight: Gate B needs criterion_text; with it and a full pre-registrat
   assert.equal(dPreflight(plan({ gate: 'C', approved_by: 'user', date: '2026-10-06' }), cRuns).ready, false);
   assert.equal(dPreflight(plan({ gate: 'B', approved_by: '<name>', date: '2026-10-06', criterion_text: 'ok' }), cRuns).ready, false);
 });
-test('reduced.sh refuses a D label before creating anything (committed PLAN has no approval)', () => {
+test('reduced.sh refuses a D label before creating anything (unapproved PLAN via DGATE_PLAN)', () => {
   const out = path.join(os.tmpdir(), `dguard-${process.pid}`);
+  const plan = path.join(os.tmpdir(), `dguard-plan-${process.pid}.yaml`);
+  fs.writeFileSync(plan, 'phases:\n  C_rebaseline: { status: "COMPLETE - DECISION RULE NOT MET" }\n  D_gate: {}\n');
   const sh = fileURLToPath(new URL('../bench/reduced.sh', import.meta.url));
   for (const label of ['D1-contain:contain', 'd2-control:control', 'D-x:contain']) {
-    const r = spawnSync('bash', [sh, '--out', out, label], { encoding: 'utf8', env: { ...process.env, NODE_BIN: process.execPath.split(path.sep).join('/') } });
+    const r = spawnSync('bash', [sh, '--out', out, label], { encoding: 'utf8', env: { ...process.env, NODE_BIN: process.execPath.split(path.sep).join('/'), DGATE_PLAN: plan } });
     assert.equal(r.status, 2, `${label}: ${r.stdout}${r.stderr}`); assert.match(r.stdout + r.stderr, /D BLOCKED|refusing D run/);
     assert.ok(!fs.existsSync(out), 'no output dir created');
   }

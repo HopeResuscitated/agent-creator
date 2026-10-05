@@ -1,4 +1,4 @@
-# D gates: final decision package (frozen 2026-10-05)
+# D gates: decision package — Gate B APPROVED (2026-10-05)
 
 ## Project status
 **EVALUATION COMPLETE — C FAILED ITS REGISTERED RULE.**
@@ -7,16 +7,18 @@
 - The current evidence does not show that containment caused a regression.
 - CPU and model limitations are documented in PLAN `C_rebaseline.result.analysis` and `evals/POST-C-NOTE.md`.
 - No C-prime is planned.
-- **D has not run. Starting D requires a human-approved D gate.**
-- Hermes has not chosen between Gate A and Gate B.
-
-Both gates are **PROPOSED — REQUIRES HUMAN APPROVAL**.
+- **Human decision 2026-10-05: D_GATE = B, APPROVED** (PLAN `phases.D_gate.approval`, recorded verbatim).
+  - Basis: C's evidence meets the Gate B criterion.
+  - Gate B is a post-hoc decision rule applied to the completed C evidence. It does NOT change C's registered result.
+  - C remains COMPLETE / VALID / DECISION RULE NOT MET.
+- Gate A was not selected.
+- **D is pre-registered (PLAN `phases.D_gate.preregistration`) and NOT STARTED.** Launching it is a separate, deliberate human decision.
 
 Read-only reports, with `NODE_BIN=C:/Users/cierra/AppData/Local/hermes/tools/node-26.7.0-win32-x64/node.exe`:
 - `"$NODE_BIN" evals/bench/dgate.mjs --gate A`
 - `"$NODE_BIN" evals/bench/dgate.mjs --gate B --archive C:/Users/cierra/hermes-bench-archive/cycle10-C`
 
-## Gate A — PROPOSED — REQUIRES HUMAN APPROVAL
+## Gate A — NOT SELECTED
 **D requires the existing pre-registered C rule to PASS.**
 
 - **Current evidence: BLOCKED.** C is final and recorded as DECISION RULE NOT MET.
@@ -26,7 +28,7 @@ Read-only reports, with `NODE_BIN=C:/Users/cierra/AppData/Local/hermes/tools/nod
   - C is not re-run or amended.
   - Only a new study that you explicitly authorize could ever satisfy it.
 
-## Gate B — PROPOSED — REQUIRES HUMAN APPROVAL
+## Gate B — APPROVED (human decision, 2026-10-05)
 **D uses the separately defined containment-regression criterion:**
 
 - **B1.** No task where the contained runs are majority not-PASS while the control runs are majority PASS.
@@ -50,7 +52,7 @@ Read-only reports, with `NODE_BIN=C:/Users/cierra/AppData/Local/hermes/tools/nod
 - Gate B was defined **after** C's outcome was known.
 - Applying it to C is a **post-hoc** analysis, not a confirmatory test.
 - It **does not change C's result**, which stays DECISION RULE NOT MET.
-- Gate B **requires explicit human approval** of the criterion text before D.
+- Gate B required explicit human approval of the criterion text before D. That approval was given on 2026-10-05.
 
 ## D start guard (D cannot start by accident)
 - `evals/bench/reduced.sh` refuses (exit 2, before creating anything) any run label `D<digit>…`, `d<digit>…`, `D-…` or `d-…`.
@@ -59,10 +61,11 @@ Read-only reports, with `NODE_BIN=C:/Users/cierra/AppData/Local/hermes/tools/nod
   - (a) PLAN `phases.D_gate.approval` written by you: `{ gate: A|B, approved_by, date }`, plus `criterion_text` for Gate B;
   - (b) a filled PLAN `phases.D_gate.preregistration` with no TEMPLATE, TBD or `<…>` placeholders;
   - (c) the approved gate's condition holding.
-- Committed state: `D BLOCKED: no human approval recorded; D not pre-registered`.
+- Committed state: approval and pre-registration are present, so `--preflight` reports READY FOR D.
+  - The full machine check is `--preflight --live --warm`, which reuses cpreflight's checks minus the C-only `plan-c-*` ones.
 - Tests: `evals/test/dgate.test.mjs`.
 
-## D preparation (ready, NOT executed)
+## D preparation (pre-registered; NOT executed)
 
 **1. Pre-registration template.**
 - PLAN `phases.D_gate.preregistration_template`.
@@ -136,3 +139,9 @@ bash evals/bench/reduced.sh --out "$O" --expect-head "$H" --ref "$O/ref-D1-conta
 - evidence paths.
 
 Never edit C's record.
+
+## Launch (NOT authorized by the Gate B approval; your separate execution decision)
+- Shape: 1 rep per mode. D1-contain, then D1-control: 18 tasks each, 36 task runs, up to about 16 h at the timeout ceiling.
+- At 1 rep per mode, B2 has no same-mode pairs (0 comparisons). This is a recorded fact of the approved shape, not a criterion change.
+- To launch, re-run `"$NODE_BIN" evals/bench/dgate.mjs --preflight --live --warm` on the clean tree. It must print READY FOR D.
+- Then run the command sequence in step 4 with `H` = that HEAD.

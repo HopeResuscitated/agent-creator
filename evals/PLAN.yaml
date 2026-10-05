@@ -544,10 +544,11 @@ phases:
                       settings were constant for every authoritative run (one server process since 2026-09-28) and each run
                       records them; pinning would be a new baseline requirement, not added"
   D_gate:
-    status: "NOT RUN, unapproved, gate not chosen; requires human approval. Gate A (existing C rule must PASS): BLOCKED by C's
-             final result. Gate B (separately defined containment-regression criterion): current C evidence MEETS it, but it was
-             defined after C (post hoc), does not change C, and requires explicit human approval. Package: evals/D-GATES.md"
-    definition: "NOT ADOPTED - nothing beyond 'after C' is a requirement"
+    status: "GATE B APPROVED (human decision, 2026-10-05); D PRE-REGISTERED; D NOT STARTED - launch is a separate, deliberate
+             human execution decision. Gate A (existing C rule must PASS) not selected (blocked by C). C unchanged: COMPLETE /
+             VALID / DECISION RULE NOT MET. Package: evals/D-GATES.md"
+    D_GATE: B
+    definition: "Gate B (approval below)"
     proposal: "PROPOSED, NOT APPROVED. Two alternative gates, neither chosen; each PROPOSED - REQUIRES HUMAN APPROVAL.
                Gate A (PROPOSED - REQUIRES HUMAN APPROVAL): D requires the existing C rule to pass. C is final and did not pass,
                so under Gate A D cannot proceed with the current evidence (it would need a new, separately authorized study).
@@ -565,7 +566,61 @@ phases:
     start_guard: "reduced.sh refuses any D<n>/d<n>/D-/d- label (exit 2, before creating anything) unless
                   'dgate.mjs --preflight' prints READY FOR D: needs approval (below, human-written) + a filled preregistration
                   + the approved gate's condition. Committed state: D BLOCKED (no approval, not pre-registered)"
-    # approval: { gate: A|B, approved_by: "<name>", date: "<YYYY-MM-DD>", criterion_text: "<Gate B only>" }   <- HUMAN ONLY
+    approval:   # HUMAN DECISION, recorded verbatim 2026-10-05 at the user's instruction ("Approve Gate B for D")
+      gate: B
+      decision: APPROVED
+      criterion:
+        - "No task where contained runs mostly fail while control runs mostly pass, with TIMEOUT counted as failure."
+        - "Same-mode disagreement <=25%."
+        - "C's existing invariants, fingerprints, and contained-only checks hold."
+      criterion_text: "1. No task where contained runs mostly fail while control runs mostly pass, with TIMEOUT counted as failure. 2. Same-mode disagreement <=25%. 3. C's existing invariants, fingerprints, and contained-only checks hold."
+      basis: "C evidence meets the Gate B criterion."
+      qualification: "Gate B is a post-hoc decision rule applied to the completed C evidence and does NOT change C's registered result."
+      c_remains: "COMPLETE / VALID / DECISION RULE NOT MET"
+      date: "2026-10-05"
+      approved_by: "user (human decision)"
+      approval_source: "human decision"
+    preregistration:   # filled 2026-10-05 from preregistration_template after the Gate B approval, BEFORE any D run. Adds no criterion.
+      approved_gate: B
+      gate_criterion: "the approval.criterion above, verbatim, applied to D's own runs: B1 no task with contained majority not-PASS
+                       while control majority PASS (TIMEOUT, FAIL, SETUP_FAILED, INCONCLUSIVE = not-PASS; a grader-PASS TIMEOUT stays
+                       TIMEOUT); B2 same-mode disagreement at most 25% (C's disagreement_definition, over D's runs); B3 invariants hold
+                       in every contained run, fingerprints match within mode (reduced.sh --ref), no contained-only failure with a
+                       containment-specific error (tripclass.mjs attribution)"
+      decision_rule: ["B1 no contained-majority-fail / control-majority-pass task (TIMEOUT = failure)",
+                      "B2 same-mode disagreement at most 25%",
+                      "B3 invariants hold every contained run; fingerprints match within mode; no contained-only containment-specific failure"]
+      decision_rule_note: "at reps 1 per mode there are no same-mode run pairs, so B2 has 0 comparisons (dgate.mjs reports 0/0 and
+                           treats it as met). Recorded as a fact of the approved run shape, not a new criterion"
+      environment: "CPU-only target (this machine, AC power); Ollama 0.34.4 (auto-update OFF); hermes-local-32k
+                    1ef2c71ed2065896b080104a0499a15b320f9ea3f9049bacdadc42e71630b60f Q4_K_M num_ctx 32768 num_gpu 0; jcode A3 710560f91
+                    sha256 42ed4012e129cc36e9d3f3c299b3015fbde5c8cb95cab36ed41f0d526fd0bab7 (C:/Users/cierra/jcode-evalpin-a3cand-bin/jcode.exe);
+                    node 26.7.0 (pinned, baseline-env.json); task tree eval-baseline-v1; re-pin record hermes-bench-archive/cycle10-cpu-repin"
+      quant: Q4_K_M
+      tasks: [T01, T02, T03, T04, T05, T06, T07, T08, T09, T10, T11, T12, T13, T14, T15, T16, T17, T18]
+      reps: "1 per mode (one contained + one control 18-task run = 36 task runs), the D shape in D_gate.proposal ('one 18-task
+             contained + control run') and the user's '16-hour D run'"
+      order: "D1-contain then D1-control; within each run the --tasks order T01..T18. D1-contain's effective-config.json is the --ref
+              for D1-control (reduced.sh stops on any per-task config-fingerprint mismatch)"
+      structure: "contained vs control: same pins, same generated agent config, meter as upstream in both; containment is the only variable"
+      timeouts: "tasks.json timeoutMin, unchanged: T01-T04 15, T05 20, T06-T11 30, T12-T15 45, T16-T17 20, T18 15 (minutes); ceiling
+                 495 min per run. A run reaching its limit is TIMEOUT even if the grader passes (outcome.ts)"
+      setup_failure: "C's policy: a SETUP_FAILED task is re-run ONCE, same mode, same pins, as a separate suite run (label
+                      D1-<mode>-setuprerun-<task>) after both runs; SETUP_FAILED again -> recorded SETUP_FAILED (excluded from scoring
+                      and disagreement; never a PASS, never a model failure)"
+      contamination: "C's outcome policy: AGENT_STATUS_UNKNOWN / UNSAFE_PROCESS_TREE -> INCONCLUSIVE (not-PASS); a suite with non-zero
+                      exit (6 meter, 7 sleep, 8 refused, 10 integrity, 11 Ollama restart, 130) -> its tasks CONTAMINATED / NOT RUN and
+                      D stops; tasks never reached -> NOT RUN. A stopped D is an integrity/environment event, not a result"
+      fingerprints: "per task, D1-control's effective-config fingerprint must equal D1-contain's (--ref); repo and ~/.jcode
+                     fingerprints unchanged across each suite (suite.sh exit 10); pins verified by run.ts (exit 2)"
+      evidence_dir: "C:/Users/cierra/hermes-bench-archive/cycle11-D"
+      evidence: "cycle11-D (reduced.log, run-*.log, ev-*/ meter, watch, power, fingerprints, tripclass); evals/results/<run id>/
+                 (results.json, summary.md, effective-config.json, transcripts); sandboxes under %TEMP%/agent-evals kept.
+                 cycle10-C is never written to"
+      start_stop: "start only by explicit human launch, after 'dgate.mjs --preflight --live --warm' prints READY FOR D on a clean
+                   tree at the pre-registration commit (reduced.sh --expect-head). Stop on any reduced.sh STOP (exit 3/4/6/7/8/10/11/130).
+                   No repo edit during the run. Afterwards: no jcode/meter/watch/keepawake, meter port free, ~/.jcode unchanged"
+      report: "PLAN phases.D_gate.result, mirroring C_rebaseline.result; C's record is never edited"
     preregistration_template:   # copy to D_gate.preregistration and replace every TEMPLATE value; full package: evals/D-GATES.md
       tasks: [T01, T02, T03, T04, T05, T06, T07, T08, T09, T10, T11, T12, T13, T14, T15, T16, T17, T18]
       reps: "TEMPLATE (per mode; C used 3)"
@@ -597,7 +652,7 @@ phases:
 checkpoint: "EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (2026-10-05). CPU-only target is intentional; no GPU requirement,
              no pending hardware work. A3 pinned and authoritative; containment did not cause the failure; no C-prime planned; Ollama 0.34.4; C VALID / DECISION RULE NOT MET is the final CPU evaluation unless
              the user authorizes a different study. Current evidence does not establish a containment regression; CPU/model
-             limitations documented (C_rebaseline.result.analysis). D not run; D gate requires human approval (evals/D-GATES.md).
+             limitations documented (C_rebaseline.result.analysis). D: Gate B APPROVED by the human 2026-10-05 (post hoc; C unchanged); D pre-registered, NOT STARTED (evals/D-GATES.md).
              FROZEN 2026-10-05: no evaluation work pending. Nothing pushed"
 evidence_classes:
   authoritative: ["clean A2 validation 2026-10-02 (validation_a2_clean)", "b6 = the authoritative Phase B run", "final regression 2026-10-03",
@@ -609,7 +664,8 @@ evidence_classes:
   hardware_dependent: ["none - the CPU-only machine is the intentional target"]
   proposed_not_approved: ["D_gate.proposal"]
 human_decisions:      # open; Hermes does not decide these (status.mjs --check requires this list)
-  - "D gate: adopt Gate A, Gate B, or neither (evals/D-GATES.md; both PROPOSED - REQUIRES HUMAN APPROVAL). D not run"
+  - "D launch: Gate B approved and D pre-registered 2026-10-05; launching D (one contained + one control 18-task run, up to
+     ~16 h) is a separate, deliberate human execution decision (evals/D-GATES.md section 'Launch')"
   - "push: whether/where to push cierra-wip-2026-09-29 and the jcode-evalpin branches"
   - "optional housekeeping: 4 ambiguous %TEMP%/agent-evals roots and the staged Ollama 0.35.1 installer (HANDOFF 'Optional cleanup';
      the 21 pre-C test roots were deleted 2026-10-05)"

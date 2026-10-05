@@ -37,6 +37,8 @@ export async function collect({ offline = false } = {}) {
     phases: Object.fromEntries(Object.entries(plan.phases ?? {}).map(([k, v]) => [k, statusWord(v?.status)])),
     phase_detail: Object.fromEntries(Object.entries(plan.phases ?? {}).map(([k, v]) => [k, String(v?.status ?? '').slice(0, 240)])),
     d_gate_proposal: plan.phases?.D_gate?.proposal ?? null,
+    d_gate_approval: plan.phases?.D_gate?.approval ?? null,
+    d_gate_result: plan.phases?.D_gate?.result ?? null,
     checkpoint: plan.checkpoint ?? null,
     known_limitations: plan.known_limitations ?? null,
     human_decisions: plan.human_decisions ?? null,
@@ -72,7 +74,12 @@ export function checks(s, docs) {
   // C ran 2026-10-04/05 (as pre-registered); its record must say COMPLETE and keep the decision-rule verdict visible.
   c('c-complete-recorded', s.phases.C_rebaseline === 'COMPLETE' && /DECISION RULE (NOT )?MET/.test(s.phase_detail.C_rebaseline ?? ''), `PLAN C_rebaseline status is "${s.phases.C_rebaseline}" (expected COMPLETE with a DECISION RULE verdict)`);
   const dText = (JSON.stringify(s.d_gate_proposal ?? '') + ' ' + (s.phase_detail.D_gate ?? '')).replace(/NOT (YET )?(ADOPTED|APPROVED)/g, '');
-  c('d-proposed-not-adopted', /PROPOSED/.test(dText) && !/ADOPTED|APPROVED/.test(dText), 'PLAN D_gate must carry the proposal labelled PROPOSED and must not read ADOPTED/APPROVED');
+  // D gate state: either still PROPOSED (no approval record, text never claims ADOPTED/APPROVED), or a human approval record
+  // (gate A|B, decision APPROVED) with D pre-registered and NOT STARTED and no D result recorded yet.
+  const ap = s.d_gate_approval;
+  if (ap) c('d-gate-approved-not-started', ['A', 'B'].includes(ap.gate) && ap.decision === 'APPROVED' && /NOT STARTED/.test(s.phase_detail.D_gate ?? '') && !s.d_gate_result,
+    `PLAN D_gate approval must be gate A|B with decision APPROVED, status NOT STARTED and no result (gate=${ap.gate} decision=${ap.decision})`);
+  else c('d-proposed-not-adopted', /PROPOSED/.test(dText) && !/ADOPTED|APPROVED/.test(dText), 'PLAN D_gate must carry the proposal labelled PROPOSED and must not read ADOPTED/APPROVED');
   c('ollama-pin-0.34.4', s.pins.ollama_version === '0.34.4', `pinned Ollama is ${s.pins.ollama_version}`);
   c('plan-branch', !s.git.branch || plan.includes(`branch: ${s.git.branch}`), `PLAN.yaml branch differs from the checked-out ${s.git.branch}`);
   c('baseline-tag-exists', !!s.git.baseline_tag_commit, `tag ${s.git.baseline_tag} missing`);
