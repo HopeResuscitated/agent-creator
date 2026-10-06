@@ -1,7 +1,9 @@
 # D gates: decision package — Gate B APPROVED (2026-10-05)
 
+**FINAL STATUS (frozen 2026-10-06): EVALUATION COMPLETE. C: COMPLETE / VALID / DECISION RULE NOT MET. D: COMPLETE / GATE B CONDITIONS MET - Gate B was approved separately by the human, post hoc, and does NOT change C's failed registered rule. CPU-only target; A3 jcode 710560f91 authoritative; Ollama 0.34.4; hermes-local-32k Q4_K_M. No C-prime planned; no further evaluation pending.**
+
 ## Project status
-**EVALUATION COMPLETE — C FAILED ITS REGISTERED RULE.**
+C failed its registered rule (historical heading of this package; see FINAL STATUS above).
 
 - C is valid final evidence: COMPLETE / VALID / DECISION RULE NOT MET.
 - The current evidence does not show that containment caused a regression.
@@ -12,7 +14,7 @@
   - Gate B is a post-hoc decision rule applied to the completed C evidence. It does NOT change C's registered result.
   - C remains COMPLETE / VALID / DECISION RULE NOT MET.
 - Gate A was not selected.
-- **D COMPLETE (2026-10-06): Gate B CONDITIONS HOLD** (PLAN `phases.D_gate.result`, evidence `cycle11-D`).
+- **D COMPLETE / GATE B CONDITIONS MET (2026-10-06)** (PLAN `phases.D_gate.result`, evidence `cycle11-D`).
   - B1: no regressions. The only cross-mode differences (T11, T17) favour contained.
   - B2: 0/0 same-mode comparisons, as pre-registered for 1 rep per mode.
   - B3: contained TRIP 0, fingerprints 18/18 match, no contained-only failure.

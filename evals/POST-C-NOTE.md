@@ -1,5 +1,7 @@
 # Post-C design note: criterion 4 (2026-10-05)
 
+**FINAL STATUS (frozen 2026-10-06): EVALUATION COMPLETE. C: COMPLETE / VALID / DECISION RULE NOT MET. D: COMPLETE / GATE B CONDITIONS MET - Gate B was approved separately by the human, post hoc, and does NOT change C's failed registered rule. CPU-only target; A3 jcode 710560f91 authoritative; Ollama 0.34.4; hermes-local-32k Q4_K_M. No C-prime planned; no further evaluation pending.**
+
 Project status: EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE. The CPU-only machine is the intended target; no
 hardware work is pending; A3 is the authoritative pin. C is VALID / DECISION RULE NOT MET. Containment did not cause the
 failure, and the current evidence does not establish a containment regression. CPU/model limitations are documented (PLAN

@@ -1,6 +1,8 @@
 # Harness audit (2026-10-04, post hardware-ready checkpoint; second pass in section 21)
 
-Final project status (2026-10-05, frozen): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (sections 23-29).
+**FINAL STATUS (frozen 2026-10-06): EVALUATION COMPLETE. C: COMPLETE / VALID / DECISION RULE NOT MET. D: COMPLETE / GATE B CONDITIONS MET - Gate B was approved separately by the human, post hoc, and does NOT change C's failed registered rule. CPU-only target; A3 jcode 710560f91 authoritative; Ollama 0.34.4; hermes-local-32k Q4_K_M. No C-prime planned; no further evaluation pending.**
+
+Final project status (2026-10-05, frozen): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (sections 23-30).
 
 Scope: everything in `evals/` that can affect evidence, done without hardware, without a re-pin and without changing any
 acceptance criterion. Every defect below was fixed in its own commit with a test; nothing in the evidence archive or in
@@ -422,3 +424,13 @@ a `name=?` line whose pid resolves to an expected process in the next sample.
   PLAN `D_gate.result`. C is unchanged and its archived files are byte-identical.
 - Post-D guard: `dPreflight` refuses once `D_gate.result` is recorded (test added). The status check accepts COMPLETE with a
   verdict (tests added).
+
+### 30 Final freeze (2026-10-06; no run, nothing deleted, nothing pushed)
+- Final status recorded identically in PLAN `final_status` and at the top of HANDOFF, AUDIT, POST-C-NOTE and D-GATES.
+- Evidence verified:
+  - C: 38 archived files are md5-identical, and the PLAN `C_rebaseline` block is byte-identical to `4b85af0`.
+  - D: `cycle11-D` plus D's two `evals/results` dirs (18 transcripts each) were hashed into
+    `hermes-bench-archive/MANIFEST-cycle11-D.md5` (1000 files), outside the evidence directory. It
+    includes `attempt1-guard-defect/`, the failed first launch (AUDIT 28; fix `aeb9e4d`).
+- Grader-PASS timeouts remain TIMEOUT in `results.json` and PLAN `D_gate.result`.
+- Optional cleanup is unchanged: 4 ambiguous sandbox roots and the staged 0.35.1 installer remain (HANDOFF).

@@ -544,7 +544,7 @@ phases:
                       settings were constant for every authoritative run (one server process since 2026-09-28) and each run
                       records them; pinning would be a new baseline requirement, not added"
   D_gate:
-    status: "COMPLETE (2026-10-06) - GATE B CONDITIONS HOLD on D's own runs (B1 0 regressions; B2 0/0 as pre-registered for
+    status: "COMPLETE / GATE B CONDITIONS MET (2026-10-06) - conditions hold on D's own runs (B1 0 regressions; B2 0/0 as pre-registered for
              1 rep/mode; B3 holds). Gate B APPROVED (human decision, 2026-10-05) before D; D run 2026-10-05 16:11 - 2026-10-06 06:15 CDT. Gate A (existing C rule must PASS) not selected (blocked by C). C unchanged: COMPLETE /
              VALID / DECISION RULE NOT MET. Package: evals/D-GATES.md"
     D_GATE: B
@@ -693,10 +693,11 @@ phases:
                malformed; ttfb median included 0s (3fa1a60)", "Ollama restart mid-suite became model FAILs (8336189)", "same-minute
                runs overwrote each other (f26e6ff)"]
     tests: "node --test evals/test/*.test.mjs (offline, seconds) + lint.sh + suite-lifecycle.sh 5/5 + watch-smoke.sh + a3offline PASS"
+final_status: "FINAL STATUS (frozen 2026-10-06): EVALUATION COMPLETE. C: COMPLETE / VALID / DECISION RULE NOT MET. D: COMPLETE / GATE B CONDITIONS MET - Gate B was approved separately by the human, post hoc, and does NOT change C's failed registered rule. CPU-only target; A3 jcode 710560f91 authoritative; Ollama 0.34.4; hermes-local-32k Q4_K_M. No C-prime planned; no further evaluation pending."
 checkpoint: "EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (2026-10-05). CPU-only target is intentional; no GPU requirement,
              no pending hardware work. A3 pinned and authoritative; containment did not cause the failure; no C-prime planned; Ollama 0.34.4; C VALID / DECISION RULE NOT MET is the final CPU evaluation unless
              the user authorizes a different study. Current evidence does not establish a containment regression; CPU/model
-             limitations documented (C_rebaseline.result.analysis). D: Gate B APPROVED 2026-10-05 (post hoc; C unchanged); D COMPLETE 2026-10-06, Gate B conditions HOLD (PLAN D_gate.result).
+             limitations documented (C_rebaseline.result.analysis). D: Gate B APPROVED 2026-10-05 (post hoc; C unchanged); D COMPLETE / GATE B CONDITIONS MET 2026-10-06 (PLAN D_gate.result).
              FROZEN 2026-10-06 after D: no evaluation work pending. Nothing pushed"
 evidence_classes:
   authoritative: ["clean A2 validation 2026-10-02 (validation_a2_clean)", "b6 = the authoritative Phase B run", "final regression 2026-10-03",

@@ -1,5 +1,7 @@
 # Handoff: pick up here
 
+**FINAL STATUS (frozen 2026-10-06): EVALUATION COMPLETE. C: COMPLETE / VALID / DECISION RULE NOT MET. D: COMPLETE / GATE B CONDITIONS MET - Gate B was approved separately by the human, post hoc, and does NOT change C's failed registered rule. CPU-only target; A3 jcode 710560f91 authoritative; Ollama 0.34.4; hermes-local-32k Q4_K_M. No C-prime planned; no further evaluation pending.**
+
 Updated 2026-10-05 (EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE; C VALID and final; A3 pinned; D Gate B APPROVED 2026-10-05; D COMPLETE 2026-10-06: Gate B conditions HOLD (B1 no regression; B2 0/0 as pre-registered at 1 rep/mode; B3 holds); contained 8/18, control 6/18). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
 `evals/REPIN.md`; exact post-hardware sequence: `evals/RUNBOOK-POST-HARDWARE.md`. Evidence: `C:\Users\cierra\hermes-bench-archive` (cycle9 = A2, Phase B, A3 candidate, final
 regression, pre-C tooling checks).
