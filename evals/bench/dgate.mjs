@@ -52,6 +52,7 @@ const PLACEHOLDER = /TEMPLATE|TBD|<[^>]*>/;
 /** D start guard on a parsed PLAN; cEvidenceRuns = loadArchive(cycle10-C) (only used for Gate B). Returns { ready, reasons }. */
 export function dPreflight(plan, cEvidenceRuns) {
   const d = plan?.phases?.D_gate ?? {}; const reasons = [];
+  if (d.result) reasons.push('D is already COMPLETE (PLAN phases.D_gate.result recorded); a new D needs a new authorization and pre-registration');
   const ap = d.approval;
   if (!ap || typeof ap !== 'object') reasons.push('no human approval recorded (PLAN phases.D_gate.approval missing)');
   else {

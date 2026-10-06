@@ -1,6 +1,6 @@
 # Harness audit (2026-10-04, post hardware-ready checkpoint; second pass in section 21)
 
-Final project status (2026-10-05, frozen): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (sections 23-28).
+Final project status (2026-10-05, frozen): EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (sections 23-29).
 
 Scope: everything in `evals/` that can affect evidence, done without hardware, without a re-pin and without changing any
 acceptance criterion. Every defect below was fixed in its own commit with a test; nothing in the evidence archive or in
@@ -407,3 +407,18 @@ a `name=?` line whose pid resolves to an expected process in the next sample.
   - Both tests fail on the old `reduced.sh` (RED) and pass on the fix.
 - No D criterion, run shape, timeout, grader or evidence requirement changed. The pre-registration requires a clean
   tree at the launch commit; D relaunches at the fix commit.
+
+### 29 D run and result (2026-10-05 16:11 - 2026-10-06 06:15 CDT)
+- Launch: `dgate --preflight --live --warm` printed READY FOR D (29/29) at `aeb9e4d`. D1-contain, then D1-control, ran with all 18
+  tasks each and tasks.json timeouts. Both `reduced.sh` runs exited rc 0.
+  - No SETUP_FAILED (no rerun), no INCONCLUSIVE and no CONTAMINATED outcome.
+  - Ollama was not restarted; it stayed on AC power throughout.
+- Integrity:
+  - Repo and `~/.jcode` fingerprints UNCHANGED in both runs.
+  - D1-control effective-config matches D1-contain on 18/18 tasks.
+  - D1-contain TRIP 0 and `outside/` empty.
+  - D1-control TRIP 2395, all attributed: 2394 control-expected and 1 harness-gate, the same classes as C2-control.
+- Result: contained 8/18, control 6/18. Gate B: B1 holds (0 regressions); B2 is 0/0, as pre-registered; B3 holds. Recorded in
+  PLAN `D_gate.result`. C is unchanged and its archived files are byte-identical.
+- Post-D guard: `dPreflight` refuses once `D_gate.result` is recorded (test added). The status check accepts COMPLETE with a
+  verdict (tests added).

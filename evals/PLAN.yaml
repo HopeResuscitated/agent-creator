@@ -544,8 +544,8 @@ phases:
                       settings were constant for every authoritative run (one server process since 2026-09-28) and each run
                       records them; pinning would be a new baseline requirement, not added"
   D_gate:
-    status: "GATE B APPROVED (human decision, 2026-10-05); D PRE-REGISTERED; D NOT STARTED - launch is a separate, deliberate
-             human execution decision. Gate A (existing C rule must PASS) not selected (blocked by C). C unchanged: COMPLETE /
+    status: "COMPLETE (2026-10-06) - GATE B CONDITIONS HOLD on D's own runs (B1 0 regressions; B2 0/0 as pre-registered for
+             1 rep/mode; B3 holds). Gate B APPROVED (human decision, 2026-10-05) before D; D run 2026-10-05 16:11 - 2026-10-06 06:15 CDT. Gate A (existing C rule must PASS) not selected (blocked by C). C unchanged: COMPLETE /
              VALID / DECISION RULE NOT MET. Package: evals/D-GATES.md"
     D_GATE: B
     definition: "Gate B (approval below)"
@@ -580,6 +580,50 @@ phases:
       date: "2026-10-05"
       approved_by: "user (human decision)"
       approval_source: "human decision"
+    result:   # recorded 2026-10-06 after D; evidence C:/Users/cierra/hermes-bench-archive/cycle11-D. C's record untouched.
+      window: "D1-contain 2026-10-05T16:11:13 - 23:03:42 CDT (398 min); D1-control 2026-10-05T23:03:46 - 2026-10-06T06:15:43 (416 min)"
+      head: "aeb9e4d (clean; reduced.sh gate per run). Preflight: dgate --preflight --live --warm READY FOR D 29/29 (cycle11-D/preflight.txt).
+             Attempt 1 at a1b6feb refused by the guard before anything ran (path defect, AUDIT 28; cycle11-D/attempt1-guard-defect)"
+      runs:
+        D1-contain: "8/18 (easy 6/6, medium 2/8, hard 0/4); results evals/results/2026-10-05-21-12_ollama-hermes-local-32k"
+        D1-control: "6/18 (easy 6/6, medium 0/8, hard 0/4); results evals/results/2026-10-06-04-03_ollama-hermes-local-32k"
+      per_task: |
+        task  D1-contain        D1-control
+        T01   PASS 155s         PASS 95s
+        T02   PASS 82s          PASS 130s
+        T03   PASS 894s         PASS 775s
+        T04   PASS 134s         PASS 83s
+        T05   PASS 550s         PASS 666s
+        T06   TIMEOUT(gp) 1803s TIMEOUT 1801s
+        T07   TIMEOUT(gp) 1803s TIMEOUT 1801s
+        T08   FAIL 929s         TIMEOUT 1802s
+        T09   TIMEOUT(gp) 1803s TIMEOUT(gp) 1801s
+        T10   TIMEOUT(gp) 1802s TIMEOUT(gp) 1801s
+        T11   PASS 1258s        TIMEOUT(gp) 1801s
+        T12   FAIL 2245s        TIMEOUT 2702s
+        T13   TIMEOUT(gp) 2703s TIMEOUT 2701s
+        T14   TIMEOUT 2704s     TIMEOUT 2702s
+        T15   TIMEOUT 2703s     TIMEOUT 2702s
+        T16   TIMEOUT(gp) 1203s TIMEOUT(gp) 1202s
+        T17   PASS 997s         FAIL 255s (csv mismatch)
+        T18   PASS 140s         PASS 127s
+        (gp = grader passed after the limit; stays TIMEOUT)
+      counts: "contained PASS 8 FAIL 2 TIMEOUT 8 (6 gp); control PASS 6 FAIL 1 TIMEOUT 11 (4 gp); SETUP_FAILED 0 (no rerun);
+               INCONCLUSIVE 0; CONTAMINATED 0; NOT RUN 0"
+      gate_B:
+        B1: "HOLDS - regressions=[] (no task contained not-PASS while control PASS). Cross-mode differences: T11 (contained PASS,
+             control TIMEOUT-gp) and T17 (contained PASS, control FAIL) - both favour contained"
+        B2: "HOLDS AS PRE-REGISTERED - 0/0 same-mode comparisons at 1 rep per mode (decision_rule_note); not evidence of within-mode stability"
+        B3: "HOLDS - contained: TRIP lines 0, outside/ empty, repo + ~/.jcode fingerprints UNCHANGED, Ollama not restarted, suite rc 0;
+             fingerprints: D1-control matches D1-contain on 18/18 tasks (effective-config 366333e8...); no contained-only failure at all"
+        verdict: "Gate B CONDITIONS HOLD (dgate --gate B: MEETS, cycle11-D/gateB-D.txt). This is D's registered result under the
+                  approved post-hoc Gate B; it does not change C (COMPLETE / VALID / DECISION RULE NOT MET)"
+      trips: "D1-contain 0. D1-control 2395 = control-expected 2394 + harness-gate 1 (all attributed; same classes as C2-control);
+              per-task rate comparable to C's control runs (846-905 over 8 tasks)"
+      analysis: "CPU/model limits dominate: 8 contained and 11 control TIMEOUTs on medium/hard tasks, 10 with the grader passing after
+                 the limit. Contained-mode tool friction seen (tsc not on PATH, npm EPERM, 'dir' Access denied in T06/T07/T10) did not
+                 produce any contained-only failure. T17 control FAIL repeats C1-control's T17 failure (model output variance). Hard
+                 tier 0/4 in both modes. With one rep per mode, run-to-run variance is not measured by D"
     preregistration:   # filled 2026-10-05 from preregistration_template after the Gate B approval, BEFORE any D run. Adds no criterion.
       approved_gate: B
       gate_criterion: "the approval.criterion above, verbatim, applied to D's own runs: B1 no task with contained majority not-PASS
@@ -652,8 +696,8 @@ phases:
 checkpoint: "EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE (2026-10-05). CPU-only target is intentional; no GPU requirement,
              no pending hardware work. A3 pinned and authoritative; containment did not cause the failure; no C-prime planned; Ollama 0.34.4; C VALID / DECISION RULE NOT MET is the final CPU evaluation unless
              the user authorizes a different study. Current evidence does not establish a containment regression; CPU/model
-             limitations documented (C_rebaseline.result.analysis). D: Gate B APPROVED by the human 2026-10-05 (post hoc; C unchanged); D pre-registered, NOT STARTED (evals/D-GATES.md).
-             FROZEN 2026-10-05: no evaluation work pending. Nothing pushed"
+             limitations documented (C_rebaseline.result.analysis). D: Gate B APPROVED 2026-10-05 (post hoc; C unchanged); D COMPLETE 2026-10-06, Gate B conditions HOLD (PLAN D_gate.result).
+             FROZEN 2026-10-06 after D: no evaluation work pending. Nothing pushed"
 evidence_classes:
   authoritative: ["clean A2 validation 2026-10-02 (validation_a2_clean)", "b6 = the authoritative Phase B run", "final regression 2026-10-03",
                   "gates.sh 15/15 + T01 x4 2026-10-03 (pre_C_preparation)", "reference agent 18/18 (2026-10-03)"]
@@ -664,8 +708,7 @@ evidence_classes:
   hardware_dependent: ["none - the CPU-only machine is the intentional target"]
   proposed_not_approved: ["D_gate.proposal"]
 human_decisions:      # open; Hermes does not decide these (status.mjs --check requires this list)
-  - "D launch: Gate B approved and D pre-registered 2026-10-05; launching D (one contained + one control 18-task run, up to
-     ~16 h) is a separate, deliberate human execution decision (evals/D-GATES.md section 'Launch')"
+  - "none required for evaluation: D complete (Gate B conditions hold); push and optional housekeeping remain"
   - "push: whether/where to push cierra-wip-2026-09-29 and the jcode-evalpin branches"
   - "optional housekeeping: 4 ambiguous %TEMP%/agent-evals roots and the staged Ollama 0.35.1 installer (HANDOFF 'Optional cleanup';
      the 21 pre-C test roots were deleted 2026-10-05)"

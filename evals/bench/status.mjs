@@ -77,8 +77,10 @@ export function checks(s, docs) {
   // D gate state: either still PROPOSED (no approval record, text never claims ADOPTED/APPROVED), or a human approval record
   // (gate A|B, decision APPROVED) with D pre-registered and NOT STARTED and no D result recorded yet.
   const ap = s.d_gate_approval;
-  if (ap) c('d-gate-approved-not-started', ['A', 'B'].includes(ap.gate) && ap.decision === 'APPROVED' && /NOT STARTED/.test(s.phase_detail.D_gate ?? '') && !s.d_gate_result,
-    `PLAN D_gate approval must be gate A|B with decision APPROVED, status NOT STARTED and no result (gate=${ap.gate} decision=${ap.decision})`);
+  // After D: status COMPLETE with a recorded result (and a verdict).
+  if (ap) c('d-gate-approved-not-started', ['A', 'B'].includes(ap.gate) && ap.decision === 'APPROVED' &&
+      ((/NOT STARTED/.test(s.phase_detail.D_gate ?? '') && !s.d_gate_result) || (/^COMPLETE/.test(s.phase_detail.D_gate ?? '') && !!s.d_gate_result?.gate_B?.verdict)),
+    `PLAN D_gate approval must be gate A|B with decision APPROVED, and either NOT STARTED with no result or COMPLETE with a result verdict (gate=${ap.gate} decision=${ap.decision})`);
   else c('d-proposed-not-adopted', /PROPOSED/.test(dText) && !/ADOPTED|APPROVED/.test(dText), 'PLAN D_gate must carry the proposal labelled PROPOSED and must not read ADOPTED/APPROVED');
   c('ollama-pin-0.34.4', s.pins.ollama_version === '0.34.4', `pinned Ollama is ${s.pins.ollama_version}`);
   c('plan-branch', !s.git.branch || plan.includes(`branch: ${s.git.branch}`), `PLAN.yaml branch differs from the checked-out ${s.git.branch}`);

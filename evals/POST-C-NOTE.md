@@ -3,7 +3,7 @@
 Project status: EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE. The CPU-only machine is the intended target; no
 hardware work is pending; A3 is the authoritative pin. C is VALID / DECISION RULE NOT MET. Containment did not cause the
 failure, and the current evidence does not establish a containment regression. CPU/model limitations are documented (PLAN
-`C_rebaseline.result.analysis`). No C-prime is planned. D: Gate B approved by the human 2026-10-05 as a post-hoc rule that does NOT change C; D is pre-registered and not started (`evals/D-GATES.md`).
+`C_rebaseline.result.analysis`). No C-prime is planned. D: Gate B approved by the human 2026-10-05 as a post-hoc rule that does NOT change C; D ran 2026-10-05/06 and its Gate B conditions hold, which still does not change C (`evals/D-GATES.md`).
 
 This note documents a lesson. It does not change C. C's authoritative result stays **COMPLETE / DECISION RULE NOT MET / VALID**
 (PLAN `C_rebaseline`). The registered criterion stays as written, and no replacement criterion is adopted here.

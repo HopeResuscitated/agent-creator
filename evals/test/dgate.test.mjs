@@ -81,3 +81,8 @@ test('reduced.sh guard lets an approved, pre-registered D through to the per-run
   assert.match(r.stdout, /READY FOR D/, r.stdout + r.stderr); assert.equal(r.status, 3, r.stdout + r.stderr); assert.match(r.stdout, /GATE FAIL: HEAD/);
   fs.rmSync(out, { recursive: true, force: true }); fs.rmSync(plan, { force: true });
 });
+
+test('D preflight: once a D result is recorded, D cannot be started again', () => {
+  const r = dPreflight({ phases: { C_rebaseline: { status: C_FINAL }, D_gate: { approval: { gate: 'B', approved_by: 'user', date: '2026-10-06', criterion_text: 'ok' }, preregistration: PRE, result: { x: 1 } } } }, cRuns);
+  assert.equal(r.ready, false); assert.ok(r.reasons.some((x) => /already COMPLETE/.test(x)));
+});

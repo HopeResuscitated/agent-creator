@@ -37,6 +37,8 @@ test('mutations are caught', async () => {
   assert.ok(m((s) => { s.d_gate_approval = { gate: 'C', decision: 'APPROVED' }; s.phase_detail.D_gate = 'D NOT STARTED'; }).includes('d-gate-approved-not-started'));
   assert.ok(m((s) => { s.d_gate_approval = appr; s.phase_detail.D_gate = 'D RUNNING'; }).includes('d-gate-approved-not-started'));
   assert.ok(m((s) => { s.d_gate_approval = appr; s.phase_detail.D_gate = 'D NOT STARTED'; s.d_gate_result = { x: 1 }; }).includes('d-gate-approved-not-started'));
+  assert.ok(!m((s) => { s.d_gate_approval = appr; s.phase_detail.D_gate = 'COMPLETE (x)'; s.d_gate_result = { gate_B: { verdict: 'v' } }; }).includes('d-gate-approved-not-started'));
+  assert.ok(m((s) => { s.d_gate_approval = appr; s.phase_detail.D_gate = 'COMPLETE (x)'; s.d_gate_result = null; }).includes('d-gate-approved-not-started'));
   assert.ok(m((s) => { s.pins.ollama_version = '0.35.1'; }).includes('ollama-pin-0.34.4'));
   assert.ok(m((s) => { s.human_decisions = []; }).includes('human-decisions-listed'));
   const l = m((s) => { s.live = { jcode_a2: { sha256: A2 }, jcode_a3_candidate: { sha256: 'x' }, ollama_version: '0.35.1', model_digests: {} }; });

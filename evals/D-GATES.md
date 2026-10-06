@@ -12,7 +12,12 @@
   - Gate B is a post-hoc decision rule applied to the completed C evidence. It does NOT change C's registered result.
   - C remains COMPLETE / VALID / DECISION RULE NOT MET.
 - Gate A was not selected.
-- **D is pre-registered (PLAN `phases.D_gate.preregistration`) and NOT STARTED.** Launching it is a separate, deliberate human decision.
+- **D COMPLETE (2026-10-06): Gate B CONDITIONS HOLD** (PLAN `phases.D_gate.result`, evidence `cycle11-D`).
+  - B1: no regressions. The only cross-mode differences (T11, T17) favour contained.
+  - B2: 0/0 same-mode comparisons, as pre-registered for 1 rep per mode.
+  - B3: contained TRIP 0, fingerprints 18/18 match, no contained-only failure.
+  - Scores: contained 8/18, control 6/18.
+  - The guard now refuses any further D (result recorded).
 
 Read-only reports, with `NODE_BIN=C:/Users/cierra/AppData/Local/hermes/tools/node-26.7.0-win32-x64/node.exe`:
 - `"$NODE_BIN" evals/bench/dgate.mjs --gate A`
@@ -145,3 +150,6 @@ Never edit C's record.
 - At 1 rep per mode, B2 has no same-mode pairs (0 comparisons). This is a recorded fact of the approved shape, not a criterion change.
 - To launch, re-run `"$NODE_BIN" evals/bench/dgate.mjs --preflight --live --warm` on the clean tree. It must print READY FOR D.
 - Then run the command sequence in step 4 with `H` = that HEAD.
+
+## Result (2026-10-06)
+D ran exactly as pre-registered (1 rep per mode, 18 tasks, unchanged timeouts) at `aeb9e4d`. See PLAN `phases.D_gate.result` for the per-task table and analysis.

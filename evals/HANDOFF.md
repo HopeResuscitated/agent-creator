@@ -1,6 +1,6 @@
 # Handoff: pick up here
 
-Updated 2026-10-05 (EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE; C VALID and final; A3 pinned; D Gate B APPROVED 2026-10-05, D pre-registered, NOT STARTED). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
+Updated 2026-10-05 (EVALUATION COMPLETE - C FAILED ITS REGISTERED RULE; C VALID and final; A3 pinned; D Gate B APPROVED 2026-10-05; D COMPLETE 2026-10-06: Gate B conditions HOLD (B1 no regression; B2 0/0 as pre-registered at 1 rep/mode; B3 holds); contained 8/18, control 6/18). Audit of the harness: `evals/AUDIT.md`. Full plan and status: `evals/PLAN.yaml`. Re-pin procedure:
 `evals/REPIN.md`; exact post-hardware sequence: `evals/RUNBOOK-POST-HARDWARE.md`. Evidence: `C:\Users\cierra\hermes-bench-archive` (cycle9 = A2, Phase B, A3 candidate, final
 regression, pre-C tooling checks).
 
@@ -433,7 +433,7 @@ pre-registration.
 - A3 is the authoritative pin. No hardware work is pending. Current evidence does not establish a containment regression;
   CPU/model limitations are documented (PLAN `C_rebaseline.result.analysis`).
 - D: Gate B APPROVED by the human 2026-10-05 (PLAN `D_gate.approval`; post-hoc rule, does NOT change C, which stays
-  COMPLETE / VALID / DECISION RULE NOT MET). D pre-registered (PLAN `D_gate.preregistration`); NOT STARTED. Gate A not selected (`evals/D-GATES.md`;
+  COMPLETE / VALID / DECISION RULE NOT MET). D pre-registered (PLAN `D_gate.preregistration`) and run; D COMPLETE 2026-10-06: Gate B conditions HOLD (B1 no regression; B2 0/0 as pre-registered at 1 rep/mode; B3 holds); contained 8/18, control 6/18 (PLAN `D_gate.result`; evidence `hermes-bench-archive/cycle11-D`). Gate A not selected (`evals/D-GATES.md`;
   read-only check `evals/bench/dgate.mjs`).
 - TRIP: `tripclass.mjs` attributes the C1-control-style sampling race (control mode only; same pid becomes the eval jcode
   within 15 s) as `control-expected-late-name`; contained mode is unchanged. Archived trip files are not rewritten.
@@ -460,7 +460,7 @@ Total roots: 123 after the deletion (118 with results, 1 archive-referenced, 4 a
 | jcode-evalpin `eval-pin-a3-candidate` (A3, the pin) | `710560f91` | no upstream | descends from A2 (+1 commit; 3 over master). Pushing needs a remote YOU own (e.g. a fork); do not push to the third-party origin by default |
 
 ## Open decisions (yours)
-1. **D launch**: Gate B is approved and D is pre-registered; launching D (up to ~16 h) is your deliberate execution decision (`evals/D-GATES.md`, "Launch").
+1. **Evaluation**: none pending. D is complete; a new D or C-prime would need a new authorization and pre-registration (the guard refuses D now that a result is recorded).
 2. **Push**: whether/where `cierra-wip-2026-09-29` (origin has `6ca495a`; local is ahead) and the jcode-evalpin branches
    (no upstream) should go. Hermes has not pushed.
 3. **Optional housekeeping**: the 4 ambiguous roots and the 0.35.1 installer (table above).
